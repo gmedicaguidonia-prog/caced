@@ -20,7 +20,14 @@ export default function CedoliniPage() {
 
   const carica = useCallback(async () => {
     const { data } = await dbLocale.cedolini.list()
-    setCedolini(data ?? [])
+    const elenco = data ?? []
+    setCedolini(elenco)
+    // il controllo si fa subito per tutti: così l'esito («tutto torna» o le
+    // anomalie) si vede nell'elenco senza dover aprire ogni cedolino
+    for (const c of elenco) {
+      const { data: esito } = await dbLocale.cedolini.riconcilia(c.id)
+      if (esito) setDettagli((d) => ({ ...d, [c.id]: esito }))
+    }
   }, [])
 
   useEffect(() => {
@@ -145,6 +152,9 @@ export default function CedoliniPage() {
                   netto <b className="text-cielo-800">{euro(c.netto)}</b>
                 </span>
                 <span className="text-sm text-cielo-600">valuta {dataIt(c.valuta)}</span>
+                {!det && (
+                  <span className="rounded-full bg-cielo-50 px-2.5 py-0.5 text-xs text-cielo-400">controllo…</span>
+                )}
                 {det &&
                   (det.anomalieAperte > 0 ? (
                     <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
