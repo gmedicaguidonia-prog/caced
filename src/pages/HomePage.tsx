@@ -10,6 +10,8 @@ export default function HomePage() {
   const [raccolta, setRaccolta] = useState<RaccoltaMese | null>(null)
   const [precedente, setPrecedente] = useState<RaccoltaMese | null>(null)
   const [cedolini, setCedolini] = useState<Cedolino[]>([])
+  /** esito del controllo di ogni cedolino, per rata: serve alle spie di stato */
+  const [esiti, setEsiti] = useState<Record<string, Riconciliazione>>({})
   const [allarmi, setAllarmi] = useState<{ rata: string; righe: Riconciliazione['righe'] }[]>([])
   const [pronto, setPronto] = useState(false)
   /** true appena esiste almeno un turno o una reperibilità in archivio */
@@ -32,14 +34,17 @@ export default function HomePage() {
 
       // controllo automatico di TUTTI i cedolini archiviati
       const problemi: { rata: string; righe: Riconciliazione['righe'] }[] = []
+      const perRata: Record<string, Riconciliazione> = {}
       for (const c of ced ?? []) {
         const { data: esito } = await dbLocale.cedolini.riconcilia(c.id)
+        if (esito) perRata[c.rata] = esito
         // quelle già archiviate come «va bene così» non si segnalano più
         if (esito && esito.anomalieAperte > 0) {
           problemi.push({ rata: c.rata, righe: esito.righe.filter((x) => !x.ok) })
         }
       }
       if (!vivo) return
+      setEsiti(perRata)
       problemi.sort((a, b) => (a.rata < b.rata ? -1 : 1))
       setAllarmi(problemi)
       setPronto(true)
@@ -141,57 +146,105 @@ export default function HomePage() {
                   </p>
                 </div>
               ))}
-            <div className="rounded-xl border border-cielo-300 bg-cielo-50 p-4">
+            <Link
+              to={`/cedolini?rata=${raccolta.rata}`}
+              title="Apri l'archivio cedolini sulla rata di questo mese"
+              className="block rounded-xl border border-cielo-300 bg-cielo-50 p-4 transition hover:border-cielo-400 hover:bg-cielo-100"
+            >
               <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">Totale previsto</p>
               <p className="mt-1 text-2xl font-bold text-cielo-800">{euro(raccolta.totale.netto)}</p>
               <p className="text-xs text-cielo-600">
                 netto stimato · valuta {dataIt(raccolta.valuta)}
                 {raccolta.benzina.stimato && ' · benzina stimata'}
               </p>
-            </div>
+              {(() => {
+                const ced = cedolini.find((c) => c.rata === raccolta.rata)
+                if (!ced)
+                  return <p className="mt-1.5 text-xs font-medium text-cielo-500">⏳ In attesa del cedolino per conferma</p>
+                const esito = esiti[raccolta.rata]
+                if (!esito) return <p className="mt-1.5 text-xs text-cielo-400">controllo del cedolino…</p>
+                if (esito.anomalieAperte > 0)
+                  return <p className="mt-1.5 text-xs font-semibold text-amber-700">⚠ Anomalie nel conteggio col cedolino</p>
+                return <p className="mt-1.5 text-xs font-semibold text-emerald-700">✓ Confermato con cedolino</p>
+              })()}
+            </Link>
           </div>
         </div>
       )}
 
-      {/* ---- rata in arrivo (mese precedente) ---- */}
-      {precedente && precedente.totale.ore > 0 && (
-        <div className="rounded-2xl border border-cielo-200 bg-panna p-5">
-          <h2 className="text-lg font-semibold text-cielo-800">
-            Rata in arrivo: {meseIt(precedente.rata)}
-          </h2>
-          <p className="mt-1 text-sm text-cielo-600">
-            Per le {precedente.totale.ore} ore di {meseIt(precedente.mese)}
-            {precedente.totale.reperibilita > 0 && ` e ${precedente.totale.reperibilita} reperibilità`}.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-6">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Netto previsto</p>
-              <p className="text-3xl font-bold text-cielo-800">{euro(precedente.totale.netto)}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Lordo</p>
-              <p className="text-xl font-semibold text-cielo-700">{euro(precedente.totale.lordo)}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Accredito previsto</p>
-              <p className="text-xl font-semibold text-cielo-700">{dataIt(precedente.valuta)}</p>
-            </div>
-            <Link
-              to="/previsione"
-              className="ml-auto rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
-            >
-              Vedi il calcolo completo
-            </Link>
-          </div>
-          {precedente.benzina.stimato && (
-            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Il compenso chilometrico è stimato con l'ultimo prezzo benzina noto
-              {precedente.benzina.da ? ` (${meseIt(precedente.benzina.da)})` : ''}: il valore esatto si
-              saprà dal cedolino.
+      {/* ---- rata in arrivo (mese precedente) o già accreditata se il cedolino c'è ---- */}
+      {precedente && precedente.totale.ore > 0 && (() => {
+        const cedRata = cedolini.find((c) => c.rata === precedente.rata)
+        const nettoCombacia =
+          cedRata != null && cedRata.netto != null && Math.abs(cedRata.netto - precedente.totale.netto) < 0.005
+        return (
+          <div className="rounded-2xl border border-cielo-200 bg-panna p-5">
+            <h2 className="text-lg font-semibold text-cielo-800">
+              {cedRata ? 'Rata accreditata' : 'Rata in arrivo'}: {meseIt(precedente.rata)}
+            </h2>
+            <p className="mt-1 text-sm text-cielo-600">
+              Per le {precedente.totale.ore} ore di {meseIt(precedente.mese)}
+              {precedente.totale.reperibilita > 0 && ` e ${precedente.totale.reperibilita} reperibilità`}
+              {cedRata ? ' — cifre lette dal cedolino.' : '.'}
             </p>
-          )}
-        </div>
-      )}
+            {cedRata ? (
+              <div className="mt-3 flex flex-wrap items-center gap-6">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Netto accreditato</p>
+                  <p className={`text-3xl font-bold ${nettoCombacia ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {euro(cedRata.netto)}
+                  </p>
+                  {!nettoCombacia && (
+                    <p className="text-xs text-cielo-500">previsto {euro(precedente.totale.netto)}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Lordo</p>
+                  <p className="text-xl font-semibold text-cielo-700">{euro(cedRata.lordo)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Accreditata il</p>
+                  <p className="text-xl font-semibold text-cielo-700">{dataIt(cedRata.valuta)}</p>
+                </div>
+                <Link
+                  to={`/cedolini?rata=${precedente.rata}`}
+                  className="ml-auto rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+                >
+                  Apri il cedolino
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-6">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Netto previsto</p>
+                  <p className="text-3xl font-bold text-cielo-800">{euro(precedente.totale.netto)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Lordo</p>
+                  <p className="text-xl font-semibold text-cielo-700">{euro(precedente.totale.lordo)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Accredito previsto</p>
+                  <p className="text-xl font-semibold text-cielo-700">{dataIt(precedente.valuta)}</p>
+                </div>
+                <Link
+                  to="/previsione"
+                  className="ml-auto rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+                >
+                  Vedi il calcolo completo
+                </Link>
+              </div>
+            )}
+            {!cedRata && precedente.benzina.stimato && (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Il compenso chilometrico è stimato con l'ultimo prezzo benzina noto
+                {precedente.benzina.da ? ` (${meseIt(precedente.benzina.da)})` : ''}: il valore esatto si
+                saprà dal cedolino.
+              </p>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ---- promemoria excel ---- */}
       <div className="rounded-2xl border border-cielo-200 bg-panna p-5">

@@ -689,12 +689,20 @@ export const dbLocale = {
         const r = await supabase.from('cacca_cedolini').select('*').eq('id', id).single()
         return riconciliaCedolino(cedolinoDaRiga(pretendi(r) as Record<string, unknown>))
       }),
-    importa: (file: File) =>
+    importa: (file: File, opzioni?: { sostituisci?: boolean }) =>
       esegui(async () => {
         const testo = await estraiTestoPdf(file)
         const letto = motore.leggiCedolino(testo)
         if (!letto.rata) {
           throw new Error('Questo PDF non sembra un cedolino NoiPA: non trovo la rata (mese/anno).')
+        }
+        // stessa rata già in archivio? prima di toccare Drive o il database si
+        // torna alla pagina, che chiede all'utente se sostituire
+        if (!opzioni?.sostituisci) {
+          const gia = await supabase.from('cacca_cedolini').select('id').eq('rata', letto.rata).limit(1)
+          if ((pretendi(gia) as { id: string }[]).length > 0) {
+            return { duplicato: true as const, rata: letto.rata }
+          }
         }
         // il PDF va sul TUO Drive, nella cartella DATI CACCA
         let driveId: string | null = null

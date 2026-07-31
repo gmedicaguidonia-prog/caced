@@ -2,9 +2,40 @@ import { useCallback, useEffect, useState } from 'react'
 import { dbLocale } from '../lib/db'
 import type { Cedolino, Riconciliazione } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
+import { useEscape } from '../hooks/useEscape'
 import { useToast } from '../hooks/useToast'
 import { euro, dataIt, meseIt } from '../lib/formato'
 import DomandaSede from '../components/DomandaSede'
+
+/** Avvisa che la rata è già in archivio e chiede se sostituirla. */
+function ModaleDuplicato({ rata, onScelta }: { rata: string; onScelta: (sostituisci: boolean) => void }) {
+  useEscape(() => onScelta(false))
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-cielo-200 bg-panna p-6 shadow-lg">
+        <h2 className="text-lg font-semibold text-cielo-800">Cedolino già in archivio</h2>
+        <p className="mt-2 text-sm leading-relaxed text-cielo-700">
+          Il cedolino della rata di <b>{meseIt(rata)}</b> è già presente. Vuoi sostituirlo con il PDF
+          che stai importando? I dati della rata verranno riletti da questo file.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={() => onScelta(false)}
+            className="rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={() => onScelta(true)}
+            className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600"
+          >
+            Sostituisci
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function CedoliniPage() {
   const { utente } = useAuth()
@@ -17,21 +48,38 @@ export default function CedoliniPage() {
   const [domanda, setDomanda] = useState<{ id: string; rata: string; dati: Riconciliazione['suggerimenti'] } | null>(
     null,
   )
+  // stessa rata già in archivio: si chiede se sostituirla col PDF appena scelto
+  const [duplicato, setDuplicato] = useState<{ file: File; rata: string } | null>(null)
 
   const carica = useCallback(async () => {
     const { data } = await dbLocale.cedolini.list()
     const elenco = data ?? []
     setCedolini(elenco)
-    // il controllo si fa subito per tutti: così l'esito («tutto torna» o le
-    // anomalie) si vede nell'elenco senza dover aprire ogni cedolino
-    for (const c of elenco) {
-      const { data: esito } = await dbLocale.cedolini.riconcilia(c.id)
-      if (esito) setDettagli((d) => ({ ...d, [c.id]: esito }))
-    }
+    // il controllo si fa in sottofondo per tutti: così l'esito («tutto torna» o
+    // le anomalie) si vede nell'elenco senza dover aprire ogni cedolino
+    void (async () => {
+      for (const c of elenco) {
+        const { data: esito } = await dbLocale.cedolini.riconcilia(c.id)
+        if (esito) setDettagli((d) => ({ ...d, [c.id]: esito }))
+      }
+    })()
+    return elenco
   }, [])
 
   useEffect(() => {
-    void carica()
+    void (async () => {
+      const elenco = await carica()
+      // arrivando dalla Home («/cedolini?rata=2026-07») la voce giusta si apre da sola
+      const rata = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('rata')
+      if (!rata) return
+      const c = elenco.find((x) => x.rata === rata)
+      if (c) {
+        setAperto(c.id)
+        setTimeout(() => {
+          document.getElementById(`cedolino-${c.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 200)
+      }
+    })()
   }, [carica])
 
   async function ricarica(id: string) {
@@ -55,15 +103,20 @@ export default function CedoliniPage() {
     if (dati?.suggerimenti) setDomanda({ id, rata: dati.cedolino.rata, dati: dati.suggerimenti })
   }
 
-  async function importa(file: File) {
+  async function importa(file: File, sostituisci = false) {
     setImporto(true)
-    const { data, error } = await dbLocale.cedolini.importa(file)
+    const { data, error } = await dbLocale.cedolini.importa(file, { sostituisci })
     setImporto(false)
     if (error) {
       toast.errore(error.message)
       return
     }
     if (!data) return
+    // la rata è già in archivio: prima di scrivere qualsiasi cosa si chiede
+    if ('duplicato' in data) {
+      setDuplicato({ file, rata: data.rata })
+      return
+    }
     await carica()
     setDettagli((d) => ({ ...d, [data.cedolino.id]: data }))
     setAperto(data.cedolino.id)
@@ -117,6 +170,18 @@ export default function CedoliniPage() {
         />
       )}
 
+      {duplicato && (
+        <ModaleDuplicato
+          rata={duplicato.rata}
+          onScelta={(sostituisci) => {
+            const file = duplicato.file
+            setDuplicato(null)
+            if (sostituisci) void importa(file, true)
+            else toast.avviso('Importazione annullata: il cedolino già in archivio resta com’era.')
+          }}
+        />
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Cedolini</h1>
         <label
@@ -151,7 +216,7 @@ export default function CedoliniPage() {
         {cedolini.map((c) => {
           const det = dettagli[c.id]
           return (
-            <section key={c.id} className="overflow-hidden rounded-2xl border border-cielo-200 bg-panna">
+            <section key={c.id} id={`cedolino-${c.id}`} className="overflow-hidden rounded-2xl border border-cielo-200 bg-panna">
               <button onClick={() => void apri(c.id)} className="flex w-full flex-wrap items-center gap-4 px-5 py-3 text-left">
                 <span className="min-w-32 text-lg font-semibold text-cielo-800">{meseIt(c.rata)}</span>
                 <span className="text-sm text-cielo-600">
