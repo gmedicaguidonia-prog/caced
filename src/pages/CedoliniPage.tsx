@@ -55,18 +55,19 @@ export default function CedoliniPage() {
     if (dati?.suggerimenti) setDomanda({ id, rata: dati.cedolino.rata, dati: dati.suggerimenti })
   }
 
-  async function importa() {
+  async function importa(file: File) {
     setImporto(true)
-    const { data, error } = await dbLocale.cedolini.importa()
+    const { data, error } = await dbLocale.cedolini.importa(file)
     setImporto(false)
     if (error) {
       toast.errore(error.message)
       return
     }
-    if (!data) return // annullato
+    if (!data) return
     await carica()
     setDettagli((d) => ({ ...d, [data.cedolino.id]: data }))
     setAperto(data.cedolino.id)
+    if (data.avvisoDrive) toast.avviso(data.avvisoDrive)
     // prima di tutto: sede e incarico letti dal PDF vanno confermati
     if (data.suggerimenti) {
       setDomanda({ id: data.cedolino.id, rata: data.cedolino.rata, dati: data.suggerimenti })
@@ -118,13 +119,21 @@ export default function CedoliniPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Cedolini</h1>
-        <button
-          onClick={() => void importa()}
-          disabled={importo}
-          className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
+        <label
+          className={`cursor-pointer rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 ${importo ? 'pointer-events-none opacity-50' : ''}`}
         >
           {importo ? 'Importazione…' : '⬆ Importa cedolino PDF'}
-        </button>
+          <input
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (file) void importa(file)
+            }}
+          />
+        </label>
       </div>
 
       <p className="text-sm text-cielo-600">

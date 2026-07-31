@@ -1,72 +1,33 @@
 {
   "name": "cacca",
   "private": true,
-  "version": "1.2.3",
-  "description": "CACCA — Calcolo Automatico Cedolini Continuità Assistenziale (app desktop locale)",
+  "version": "2.0.0",
+  "description": "CACCA — Calcolo Automatico Cedolini Continuità Assistenziale (app web)",
   "author": "CACCA",
   "type": "module",
-  "main": "electron/main.cjs",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5174 --strictPort",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "app": "npm run build && electron .",
-    "smoke": "npm run build && electron . --smoke",
-    "icona": "node scripts/genera-icona.mjs",
-    "chiudi": "node scripts/chiudi-app.mjs",
-    "avvia": "node scripts/avvia-app.mjs",
-    "predist": "node scripts/chiudi-app.mjs",
-    "dist": "npm run build && electron-builder --win",
-    "postdist": "node scripts/avvia-app.mjs",
-    "rilascia": "node scripts/rilascia.mjs",
-    "postinstall": "electron-builder install-app-deps"
+    "anteprima": "vite preview --port 5174",
+    "collaudo": "node scripts/collaudo-motore.mjs && node scripts/collaudo-pdfjs.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^12.2.0",
+    "@supabase/supabase-js": "^2.45.0",
     "exceljs": "^4.4.0",
-    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.6.82",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
-    "@resvg/resvg-js": "^2.6.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
-    "electron": "^35.0.0",
-    "electron-builder": "^25.1.8",
-    "png-to-ico": "^2.1.8",
     "postcss": "^8.4.40",
     "tailwindcss": "^3.4.7",
     "typescript": "^5.5.4",
     "vite": "^5.3.5"
-  },
-  "build": {
-    "appId": "it.cacca.gm",
-    "productName": "CACCA",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**",
-      "electron/**",
-      "!electron/seed-dati.json"
-    ],
-    "asarUnpack": [
-      "node_modules/better-sqlite3/**"
-    ],
-    "win": {
-      "target": [
-        "portable",
-        "dir"
-      ],
-      "icon": "build/icon.ico"
-    },
-    "portable": {
-      "artifactName": "CACCA.exe"
-    }
   }
 }

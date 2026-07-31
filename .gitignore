@@ -3,10 +3,10 @@ node_modules/
 dist/
 release/
 
-# DATI PERSONALI E SANITARI: mai nel repository
+# DATI PERSONALI: mai nel repository
 dati/
 docs/
-electron/seed-dati.json
+seed-dati.json
 ANALISI-COMPENSI-2026.md
 PIANO-GESTIONALE.md
 

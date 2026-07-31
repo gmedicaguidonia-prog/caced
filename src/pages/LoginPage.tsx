@@ -1,13 +1,27 @@
 import { useState } from 'react'
-import type { FormEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'
 
 const LOGO = './logo.svg'
-const inputCls =
-  'w-full rounded-lg border border-cielo-300 bg-white px-3 py-2 text-sm text-cielo-800 outline-none transition focus:border-cielo-400 focus:ring-2 focus:ring-cielo-100'
 
 export default function LoginPage() {
-  const { serveSetup } = useAuth()
+  const { utente, accediConGoogle, esci } = useAuth()
+  const [errore, setErrore] = useState<string | null>(null)
+  const [attesa, setAttesa] = useState(false)
+
+  async function accedi() {
+    setErrore(null)
+    setAttesa(true)
+    const esito = await accediConGoogle()
+    if (!esito.ok) {
+      setAttesa(false)
+      setErrore(esito.messaggio ?? 'Accesso non riuscito.')
+    }
+    // se riesce, il browser va su Google e poi torna qui già connesso
+  }
+
+  // connesso con Google ma non nella lista degli ammessi
+  const nonAutorizzato = utente && !utente.autorizzato
+
   return (
     <div className="flex min-h-full items-center justify-center bg-cielo-100 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-cielo-200 bg-panna p-8 shadow-sm">
@@ -18,144 +32,52 @@ export default function LoginPage() {
             Calcolo Automatico Cedolini Continuità Assistenziale
           </p>
         </div>
-        {serveSetup ? <FormPrimoAvvio /> : <FormAccesso />}
+
+        {nonAutorizzato ? (
+          <div className="mt-6 space-y-3">
+            <p className="rounded-lg bg-amber-50 p-3 text-sm leading-relaxed text-amber-800">
+              Sei entrato come <b>{utente.email}</b>, ma questo indirizzo non è tra quelli autorizzati a
+              usare CACCA.
+            </p>
+            <button
+              onClick={() => void esci()}
+              className="w-full rounded-lg border border-cielo-300 py-2.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
+            >
+              Esci e prova con un altro account
+            </button>
+          </div>
+        ) : (
+          <div className="mt-6 space-y-3">
+            <p className="text-center text-sm text-cielo-600">
+              I tuoi dati ti seguono ovunque: computer, iPad, telefono.
+            </p>
+            <button
+              onClick={() => void accedi()}
+              disabled={attesa}
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-cielo-300 bg-white py-2.5 font-medium text-cielo-800 transition hover:bg-cielo-50 disabled:opacity-50"
+            >
+              <LogoGoogle />
+              {attesa ? 'Un attimo…' : 'Accedi con Google'}
+            </button>
+            {errore && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{errore}</p>}
+            <p className="pt-1 text-center text-[11px] leading-relaxed text-cielo-400">
+              I cedolini PDF vengono salvati nella cartella «DATI CACCA» del tuo Google Drive; turni e
+              calcoli in un archivio riservato al tuo indirizzo.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function FormAccesso() {
-  const { login } = useAuth()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [errore, setErrore] = useState<string | null>(null)
-  const [attesa, setAttesa] = useState(false)
-
-  async function invia(e: FormEvent) {
-    e.preventDefault()
-    setErrore(null)
-    setAttesa(true)
-    const esito = await login(email, password)
-    setAttesa(false)
-    if (!esito.ok) setErrore(esito.messaggio ?? 'Accesso non riuscito.')
-  }
-
+function LogoGoogle() {
   return (
-    <form onSubmit={invia} className="mt-6 space-y-3">
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-cielo-700">Nome utente (email)</span>
-        <input
-          type="email"
-          autoFocus
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className={inputCls}
-          placeholder="nome@esempio.it"
-        />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-cielo-700">Password</span>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className={inputCls}
-        />
-      </label>
-
-      {errore && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{errore}</p>}
-
-      <button
-        type="submit"
-        disabled={attesa}
-        className="w-full rounded-lg bg-cielo-500 py-2.5 font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
-      >
-        {attesa ? 'Accesso…' : 'Accedi'}
-      </button>
-      <p className="pt-1 text-center text-[11px] text-cielo-400">
-        Password dimenticata? Deve reimpostarla un amministratore.
-      </p>
-    </form>
-  )
-}
-
-function FormPrimoAvvio() {
-  const { registraPrimoUtente } = useAuth()
-  const [c, setC] = useState({ nome: '', cognome: '', email: '', password: '', ripeti: '' })
-  const [errore, setErrore] = useState<string | null>(null)
-  const [attesa, setAttesa] = useState(false)
-
-  async function invia(e: FormEvent) {
-    e.preventDefault()
-    setErrore(null)
-    if (c.password !== c.ripeti) {
-      setErrore('Le due password non coincidono.')
-      return
-    }
-    setAttesa(true)
-    const esito = await registraPrimoUtente({
-      nome: c.nome.trim() || null,
-      cognome: c.cognome.trim() || null,
-      email: c.email.trim(),
-      password: c.password,
-    })
-    setAttesa(false)
-    if (!esito.ok) setErrore(esito.messaggio ?? 'Creazione non riuscita.')
-  }
-
-  return (
-    <form onSubmit={invia} className="mt-6 space-y-3">
-      <p className="rounded-lg bg-cielo-50 p-3 text-sm text-cielo-700">
-        <b>Primo avvio.</b> Crea l'utente amministratore. Nome e cognome verranno usati anche
-        nell'intestazione dei riepiloghi excel per l'ufficio.
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-cielo-700">Nome</span>
-          <input value={c.nome} onChange={(e) => setC({ ...c, nome: e.target.value })} className={inputCls} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-cielo-700">Cognome</span>
-          <input value={c.cognome} onChange={(e) => setC({ ...c, cognome: e.target.value })} className={inputCls} />
-        </label>
-      </div>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-cielo-700">Email (nome utente) *</span>
-        <input
-          type="email"
-          value={c.email}
-          onChange={(e) => setC({ ...c, email: e.target.value })}
-          className={inputCls}
-        />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-cielo-700">Password * (min. 8 caratteri)</span>
-        <input
-          type="password"
-          value={c.password}
-          onChange={(e) => setC({ ...c, password: e.target.value })}
-          className={inputCls}
-        />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-cielo-700">Ripeti password *</span>
-        <input
-          type="password"
-          value={c.ripeti}
-          onChange={(e) => setC({ ...c, ripeti: e.target.value })}
-          className={inputCls}
-        />
-      </label>
-
-      {errore && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{errore}</p>}
-
-      <button
-        type="submit"
-        disabled={attesa}
-        className="w-full rounded-lg bg-cielo-500 py-2.5 font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
-      >
-        {attesa ? 'Creazione…' : 'Crea amministratore ed entra'}
-      </button>
-    </form>
+    <svg width="18" height="18" viewBox="0 0 48 48">
+      <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.3 6.1 29.4 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
+      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.3 6.1 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+      <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C36.9 40.1 44 35 44 24c0-1.3-.1-2.6-.4-3.9z"/>
+    </svg>
   )
 }

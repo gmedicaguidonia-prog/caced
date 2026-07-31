@@ -1,23 +1,13 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { dbLocale } from '../lib/db'
 import type { Utente } from '../lib/db'
 
-type Esito = { ok: boolean; messaggio?: string }
-
 type AuthState = {
   caricamento: boolean
   utente: Utente | null
-  serveSetup: boolean
-  login: (email: string, password: string) => Promise<Esito>
-  registraPrimoUtente: (r: {
-    nome: string | null
-    cognome: string | null
-    email: string
-    password: string
-  }) => Promise<Esito>
+  accediConGoogle: () => Promise<{ ok: boolean; messaggio?: string }>
   esci: () => Promise<void>
-  cambiaPassword: (vecchia: string, nuova: string) => Promise<Esito>
   ricarica: () => Promise<void>
 }
 
@@ -26,57 +16,31 @@ const AuthCtx = createContext<AuthState | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [caricamento, setCaricamento] = useState(true)
   const [utente, setUtente] = useState<Utente | null>(null)
-  const [serveSetup, setServeSetup] = useState(false)
 
-  async function ricarica() {
-    const { data } = await dbLocale.auth.stato()
-    setServeSetup(Boolean(data?.serveSetup))
-    setUtente(data?.utente ?? null)
+  const ricarica = useCallback(async () => {
+    setUtente(await dbLocale.auth.utente())
     setCaricamento(false)
-  }
+  }, [])
 
   useEffect(() => {
     void ricarica()
-  }, [])
+    // al ritorno dal login Google la sessione cambia: si ricarica il profilo
+    return dbLocale.auth.osserva(() => void ricarica())
+  }, [ricarica])
 
-  async function login(email: string, password: string): Promise<Esito> {
-    const { data, error } = await dbLocale.auth.login(email, password)
-    if (error || !data) return { ok: false, messaggio: error?.message ?? 'Accesso non riuscito.' }
-    setUtente(data)
-    setServeSetup(false)
-    return { ok: true }
-  }
-
-  async function registraPrimoUtente(r: {
-    nome: string | null
-    cognome: string | null
-    email: string
-    password: string
-  }): Promise<Esito> {
-    const { data, error } = await dbLocale.auth.setup({ ...r, ruolo: 'admin' })
-    if (error || !data) return { ok: false, messaggio: error?.message ?? 'Creazione non riuscita.' }
-    setUtente(data)
-    setServeSetup(false)
-    return { ok: true }
+  async function accediConGoogle() {
+    const { error } = await dbLocale.auth.accediConGoogle()
+    if (error) return { ok: false, messaggio: error.message }
+    return { ok: true } // il browser sta andando su Google
   }
 
   async function esci() {
-    await dbLocale.auth.logout()
+    await dbLocale.auth.esci()
     setUtente(null)
   }
 
-  async function cambiaPassword(vecchia: string, nuova: string): Promise<Esito> {
-    const { error } = await dbLocale.auth.cambiaPassword(vecchia, nuova)
-    if (error) return { ok: false, messaggio: error.message }
-    return { ok: true }
-  }
-
   return (
-    <AuthCtx.Provider
-      value={{ caricamento, utente, serveSetup, login, registraPrimoUtente, esci, cambiaPassword, ricarica }}
-    >
-      {children}
-    </AuthCtx.Provider>
+    <AuthCtx.Provider value={{ caricamento, utente, accediConGoogle, esci, ricarica }}>{children}</AuthCtx.Provider>
   )
 }
 

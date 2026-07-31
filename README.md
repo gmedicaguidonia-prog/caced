@@ -1,37 +1,34 @@
 # 💩 CACCA — Calcolo Automatico Cedolini Continuità Assistenziale
 
-App desktop **completamente locale** (Windows) per i medici di continuità
-assistenziale: registro turni, generazione dei riepiloghi ore in excel nel
-formato dell'ufficio, previsione dei compensi (ACN + A.I.R. Lazio), archivio
-dei cedolini NoiPA con **controllo automatico voce per voce**.
+App **web** per i medici di continuità assistenziale: registro turni,
+riepiloghi ore per l'ufficio (excel e PDF), previsione dei compensi
+(ACN + A.I.R. Lazio), archivio cedolini NoiPA con **controllo automatico
+voce per voce**. Funziona su computer, iPad e telefono.
 
-## Come funziona
+**App:** https://marabellis-prog.github.io/caced/
 
-- **Zero cloud**: database SQLite nella cartella `dati` accanto a `CACCA.exe`
-  (consigliata l'installazione in `D:\CACCA`), copia di sicurezza automatica
-  giornaliera in `dati/backup`.
-- **Registro turni** a calendario per postazione, con la maggiorazione
-  superfestiva proposta in automatico secondo l'elenco AIR.
-- **Riepiloghi excel** identici al modello dell'ufficio (colonne B–H, X sui
-  giorni, totali), un file per postazione/mese.
-- **Previsione compensi**: onorario ACN, incremento A.I.R., reperibilità,
-  superfestivo, chilometrico (ACN art. 72 c. 2: costo di 1 L di benzina verde
-  per ora), ENPAM e ritenuta d'acconto con gli stessi arrotondamenti di NoiPA.
-- **Cedolini**: importa il PDF NoiPA, l'app legge le voci, archivia il file e
-  confronta ogni importo con le ore dichiarate (segnala reperibilità non
-  pagate, superfestivi dimenticati, arretrati in ritardo…).
-- **Aggiornamenti automatici** da GitHub Releases con verifica SHA-256.
+## Architettura
+
+- **Interfaccia**: React + Vite + Tailwind, pubblicata su GitHub Pages.
+- **Accesso**: login Google (Supabase Auth); entra solo chi è nella lista
+  degli autorizzati.
+- **Dati**: Supabase (tabelle con prefisso `cacca_`, regole RLS per email:
+  ognuno vede solo le proprie righe).
+- **Cedolini PDF**: cartella **DATI CACCA** sul Google Drive dell'utente
+  (ambito `drive.file`: l'app vede solo i file creati da lei).
+- **Motore di calcolo** (`src/lib/motore.cjs`): tipi di turno, superfestivi
+  AIR (Pasqua calcolata), tariffe con decorrenza, arrotondamenti NoiPA,
+  lettura del testo dei cedolini, riconciliazione con riconoscimento dei
+  pagamenti in ritardo ("Rif MM/AA").
 
 ## Sviluppo
 
 ```bash
 npm install
-npm run app      # build + avvio in Electron
-npm run smoke    # collaudo automatico (motore verificato sui cedolini reali, se presente il seed)
-npm run dist     # genera release/CACCA.exe (portable)
-npm run rilascia # pubblica su GitHub Releases (serve GITHUB_TOKEN in .env.local)
+npm run dev       # http://localhost:5174
+npm run build
+npm run collaudo  # motore contro i cedolini reali + lettura PDF con pdfjs (dati locali)
 ```
 
-Il repository contiene **solo codice**: i dati personali (turni, cedolini,
-`electron/seed-dati.json`) restano fuori da git e fuori dal pacchetto
-distribuito — lo script di rilascio lo verifica prima di pubblicare.
+Il deploy avviene da solo a ogni push su `main` (GitHub Actions → Pages).
+I dati personali (seed, analisi) restano fuori dal repository.

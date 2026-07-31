@@ -4,7 +4,6 @@ import type { Incarico, Postazione, PrezzoBenzina, Tariffa } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { useEscape } from '../hooks/useEscape'
-import ArchivioOnline from '../components/ArchivioOnline'
 import { euro, meseIt, meseOggi } from '../lib/formato'
 
 const NOMI_TARIFFE: Record<string, string> = {
@@ -28,21 +27,18 @@ export default function TariffePage() {
   const [benzina, setBenzina] = useState<PrezzoBenzina[]>([])
   const [incarichi, setIncarichi] = useState<Incarico[]>([])
   const [postazioni, setPostazioni] = useState<Postazione[]>([])
-  const [cartella, setCartella] = useState('')
 
   const carica = useCallback(async () => {
-    const [t, b, i, p, info] = await Promise.all([
+    const [t, b, i, p] = await Promise.all([
       dbLocale.tariffe.list(),
       dbLocale.benzina.list(),
       dbLocale.incarichi.list(),
       dbLocale.postazioni.list(),
-      dbLocale.datiApp.info(),
     ])
     setTariffe(t.data ?? [])
     setBenzina(b.data ?? [])
     setIncarichi(i.data ?? [])
     setPostazioni(p.data ?? [])
-    setCartella(info.data?.cartella ?? '')
   }, [])
 
   useEffect(() => {
@@ -348,33 +344,33 @@ export default function TariffePage() {
       {/* ---- dati ---- */}
       <section id="dati" className="rounded-2xl border border-cielo-200 bg-panna p-5">
         <h2 className="text-lg font-semibold text-cielo-800">I tuoi dati</h2>
-        <p className="mt-1 text-sm text-cielo-600">
-          Archivio: <b className="break-all">{cartella}</b> — con copia di sicurezza automatica
-          giornaliera nella sottocartella <b>backup</b> (ne restano 30).
+        <p className="mt-1 text-sm leading-relaxed text-cielo-600">
+          Turni, tariffe e conteggi vivono in un archivio online riservato al tuo indirizzo; i PDF dei
+          cedolini nella cartella <b>DATI CACCA</b> del tuo Google Drive. Tutto ti segue su ogni
+          dispositivo.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
-            onClick={() => void dbLocale.datiApp.apriCartella().then(({ error }) => error && toast.errore(error.message))}
+            onClick={() =>
+              void dbLocale.datiApp.apriCartellaDrive().then(({ error }) => error && toast.errore(error.message))
+            }
             className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
           >
-            Apri la cartella dati
+            Apri la cartella DATI CACCA su Drive
           </button>
           <button
             onClick={() =>
               void dbLocale.datiApp.esporta().then(({ data, error }) => {
                 if (error) toast.errore(error.message)
-                else if (data) toast.ok(`Esportazione creata: ${data.percorso}`)
+                else if (data) toast.ok(`Esportazione scaricata: ${data.file}`)
               })
             }
             className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
           >
-            Esporta tutti i dati (file di scorta)
+            Scarica tutti i dati (file di scorta)
           </button>
         </div>
       </section>
-
-      {/* ---- archivio online cifrato ---- */}
-      <ArchivioOnline />
     </div>
   )
 }
