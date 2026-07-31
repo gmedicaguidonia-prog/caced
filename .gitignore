@@ -1,0 +1,19 @@
+# dipendenze e prodotti di build
+node_modules/
+dist/
+release/
+
+# DATI PERSONALI E SANITARI: mai nel repository
+dati/
+docs/
+electron/seed-dati.json
+ANALISI-COMPENSI-2026.md
+PIANO-GESTIONALE.md
+
+# segreti locali
+.env
+.env.local
+
+# varie
+*.log
+Thumbs.db

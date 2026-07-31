@@ -1,0 +1,351 @@
+import { useCallback, useEffect, useState } from 'react'
+import { dbLocale } from '../lib/db'
+import type { Incarico, Postazione, PrezzoBenzina, Tariffa } from '../lib/db'
+import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
+import { euro, meseIt, meseOggi } from '../lib/formato'
+
+const NOMI_TARIFFE: Record<string, string> = {
+  onorario: 'Onorario orario ACN',
+  air_ora: 'Incremento orario A.I.R. Lazio',
+  reperibilita: 'Turno di reperibilità',
+  superfestivo_ora: 'Maggiorazione superfestivo (per ora)',
+  enpam_pct: 'ENPAM (% sul lordo)',
+  ra_pct: "Ritenuta d'acconto (%)",
+}
+
+const inputCls =
+  'rounded-lg border border-cielo-300 bg-white px-2 py-1.5 text-sm text-cielo-800 outline-none transition focus:border-cielo-400'
+
+export default function TariffePage() {
+  const { utente } = useAuth()
+  const toast = useToast()
+  const admin = utente?.ruolo === 'admin'
+
+  const [tariffe, setTariffe] = useState<Tariffa[]>([])
+  const [benzina, setBenzina] = useState<PrezzoBenzina[]>([])
+  const [incarichi, setIncarichi] = useState<Incarico[]>([])
+  const [postazioni, setPostazioni] = useState<Postazione[]>([])
+  const [cartella, setCartella] = useState('')
+
+  const carica = useCallback(async () => {
+    const [t, b, i, p, info] = await Promise.all([
+      dbLocale.tariffe.list(),
+      dbLocale.benzina.list(),
+      dbLocale.incarichi.list(),
+      dbLocale.postazioni.list(),
+      dbLocale.datiApp.info(),
+    ])
+    setTariffe(t.data ?? [])
+    setBenzina(b.data ?? [])
+    setIncarichi(i.data ?? [])
+    setPostazioni(p.data ?? [])
+    setCartella(info.data?.cartella ?? '')
+  }, [])
+
+  useEffect(() => {
+    void carica()
+  }, [carica])
+
+  // --- nuova decorrenza tariffa ---
+  const [nuovaTariffa, setNuovaTariffa] = useState({ tipo: 'onorario', valore: '', dal: meseOggi() })
+  async function salvaTariffa() {
+    const valore = Number(String(nuovaTariffa.valore).replace(',', '.'))
+    const { error } = await dbLocale.tariffe.salva({ tipo: nuovaTariffa.tipo, valore, dal: nuovaTariffa.dal })
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    toast.ok('Tariffa salvata.')
+    setNuovaTariffa({ ...nuovaTariffa, valore: '' })
+    await carica()
+  }
+
+  // --- benzina ---
+  const [nuovaBenzina, setNuovaBenzina] = useState({ mese: meseOggi(), prezzo: '' })
+  async function salvaBenzina() {
+    const prezzo = Number(String(nuovaBenzina.prezzo).replace(',', '.'))
+    const { error } = await dbLocale.benzina.imposta(nuovaBenzina.mese, prezzo)
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    toast.ok('Prezzo benzina salvato.')
+    setNuovaBenzina({ ...nuovaBenzina, prezzo: '' })
+    await carica()
+  }
+
+  // --- incarichi ---
+  const [nuovoIncarico, setNuovoIncarico] = useState({ iscrizione: '', dal: '', al: '', sede: '' })
+  async function salvaIncarico() {
+    const { error } = await dbLocale.incarichi.salva({
+      iscrizione: nuovoIncarico.iscrizione,
+      dal: nuovoIncarico.dal || null,
+      al: nuovoIncarico.al || null,
+      sede: nuovoIncarico.sede || null,
+    })
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    toast.ok('Incarico salvato.')
+    setNuovoIncarico({ iscrizione: '', dal: '', al: '', sede: '' })
+    await carica()
+  }
+
+  const tipi = Object.keys(NOMI_TARIFFE)
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Tariffe e Impostazioni</h1>
+
+      {/* ---- tariffe contrattuali ---- */}
+      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+        <h2 className="text-lg font-semibold text-cielo-800">Tariffe contrattuali</h2>
+        <p className="mt-1 text-sm text-cielo-600">
+          Ogni tariffa ha una decorrenza (mese di lavoro da cui vale): quando ACN o A.I.R. cambiano, si
+          aggiunge la nuova riga senza toccare lo storico.
+        </p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          {tipi.map((tipo) => (
+            <div key={tipo} className="rounded-xl border border-cielo-200 bg-white p-3">
+              <p className="text-sm font-semibold text-cielo-800">{NOMI_TARIFFE[tipo]}</p>
+              <ul className="mt-1 space-y-0.5 text-sm text-cielo-700">
+                {tariffe
+                  .filter((t) => t.tipo === tipo)
+                  .sort((a, b) => (a.dal < b.dal ? -1 : 1))
+                  .map((t) => (
+                    <li key={t.id} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-cielo-500">
+                        {t.dal <= '2020-01' ? 'dall’inizio' : `dalle ore di ${meseIt(t.dal)}`}
+                        {t.note ? ` — ${t.note}` : ''}
+                      </span>
+                      <b>{tipo.endsWith('_pct') ? `${t.valore.toLocaleString('it-IT')} %` : euro(t.valore)}</b>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        {admin && (
+          <div className="mt-4 flex flex-wrap items-end gap-2 rounded-xl bg-cielo-50 p-3">
+            <label className="text-xs text-cielo-700">
+              Voce
+              <select
+                value={nuovaTariffa.tipo}
+                onChange={(e) => setNuovaTariffa({ ...nuovaTariffa, tipo: e.target.value })}
+                className={`${inputCls} block`}
+              >
+                {tipi.map((t) => (
+                  <option key={t} value={t}>
+                    {NOMI_TARIFFE[t]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-cielo-700">
+              Nuovo valore
+              <input
+                value={nuovaTariffa.valore}
+                onChange={(e) => setNuovaTariffa({ ...nuovaTariffa, valore: e.target.value })}
+                placeholder="es. 25,10"
+                className={`${inputCls} block w-28`}
+              />
+            </label>
+            <label className="text-xs text-cielo-700">
+              Dalle ore di
+              <input
+                type="month"
+                value={nuovaTariffa.dal}
+                onChange={(e) => setNuovaTariffa({ ...nuovaTariffa, dal: e.target.value })}
+                className={`${inputCls} block`}
+              />
+            </label>
+            <button
+              onClick={() => void salvaTariffa()}
+              disabled={!nuovaTariffa.valore}
+              className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
+            >
+              Aggiungi decorrenza
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* ---- benzina ---- */}
+      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+        <h2 className="text-lg font-semibold text-cielo-800">Prezzo benzina (chilometrico)</h2>
+        <p className="mt-1 text-sm text-cielo-600">
+          L'ACN (art. 72 c. 2) riconosce il costo di 1 litro di benzina verde per ogni ora di attività.
+          Quando importi un cedolino il prezzo del mese viene ricavato da solo; qui puoi inserirlo a mano
+          per rendere esatta la previsione.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {benzina.map((b) => (
+            <span key={b.mese} className="rounded-full border border-cielo-200 bg-white px-3 py-1 text-xs text-cielo-700" title={b.fonte ?? ''}>
+              {meseIt(b.mese)}: <b>{b.prezzo.toLocaleString('it-IT', { maximumFractionDigits: 5 })} €/L</b>
+            </span>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl bg-cielo-50 p-3">
+          <label className="text-xs text-cielo-700">
+            Mese di lavoro
+            <input
+              type="month"
+              value={nuovaBenzina.mese}
+              onChange={(e) => setNuovaBenzina({ ...nuovaBenzina, mese: e.target.value })}
+              className={`${inputCls} block`}
+            />
+          </label>
+          <label className="text-xs text-cielo-700">
+            Prezzo €/litro
+            <input
+              value={nuovaBenzina.prezzo}
+              onChange={(e) => setNuovaBenzina({ ...nuovaBenzina, prezzo: e.target.value })}
+              placeholder="es. 1,931"
+              className={`${inputCls} block w-28`}
+            />
+          </label>
+          <button
+            onClick={() => void salvaBenzina()}
+            disabled={!nuovaBenzina.prezzo}
+            className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
+          >
+            Salva prezzo
+          </button>
+        </div>
+      </section>
+
+      {/* ---- incarichi ---- */}
+      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+        <h2 className="text-lg font-semibold text-cielo-800">Incarichi (numeri di iscrizione)</h2>
+        <p className="mt-1 text-sm text-cielo-600">
+          Traccia dei rinnovi: utile per capire a quale incarico appartiene ogni cedolino.
+        </p>
+        <table className="mt-3 w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide text-cielo-500">
+              <th className="py-1">Iscrizione</th>
+              <th className="py-1">Dal</th>
+              <th className="py-1">Al</th>
+              <th className="py-1">Sede</th>
+              <th className="py-1">Note</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {incarichi.map((i) => (
+              <tr key={i.id} className="border-t border-cielo-100 text-cielo-800">
+                <td className="py-1.5 font-medium">{i.iscrizione}</td>
+                <td className="py-1.5">{i.dal ? meseIt(i.dal) : '—'}</td>
+                <td className="py-1.5">{i.al ? meseIt(i.al) : 'in corso'}</td>
+                <td className="py-1.5">{i.sede ?? '—'}</td>
+                <td className="py-1.5 text-xs text-cielo-500">{i.note ?? ''}</td>
+                <td className="py-1.5 text-right">
+                  <button
+                    onClick={() =>
+                      void dbLocale.incarichi.elimina(i.id).then(({ error }) => {
+                        if (error) toast.errore(error.message)
+                        else void carica()
+                      })
+                    }
+                    className="text-xs text-red-600 hover:underline"
+                  >
+                    elimina
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl bg-cielo-50 p-3">
+          <label className="text-xs text-cielo-700">
+            N° iscrizione
+            <input
+              value={nuovoIncarico.iscrizione}
+              onChange={(e) => setNuovoIncarico({ ...nuovoIncarico, iscrizione: e.target.value })}
+              className={`${inputCls} block w-32`}
+            />
+          </label>
+          <label className="text-xs text-cielo-700">
+            Dal
+            <input
+              type="month"
+              value={nuovoIncarico.dal}
+              onChange={(e) => setNuovoIncarico({ ...nuovoIncarico, dal: e.target.value })}
+              className={`${inputCls} block`}
+            />
+          </label>
+          <label className="text-xs text-cielo-700">
+            Al
+            <input
+              type="month"
+              value={nuovoIncarico.al}
+              onChange={(e) => setNuovoIncarico({ ...nuovoIncarico, al: e.target.value })}
+              className={`${inputCls} block`}
+            />
+          </label>
+          <label className="text-xs text-cielo-700">
+            Sede
+            <input
+              value={nuovoIncarico.sede}
+              onChange={(e) => setNuovoIncarico({ ...nuovoIncarico, sede: e.target.value })}
+              className={`${inputCls} block w-40`}
+            />
+          </label>
+          <button
+            onClick={() => void salvaIncarico()}
+            disabled={!nuovoIncarico.iscrizione}
+            className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
+          >
+            Aggiungi
+          </button>
+        </div>
+      </section>
+
+      {/* ---- postazioni ---- */}
+      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+        <h2 className="text-lg font-semibold text-cielo-800">Postazioni</h2>
+        <ul className="mt-2 space-y-1 text-sm text-cielo-800">
+          {postazioni.map((p) => (
+            <li key={p.id} className="flex items-center justify-between rounded-lg border border-cielo-200 bg-white px-3 py-2">
+              <span>
+                <b>{p.nome}</b>{' '}
+                <span className="text-xs text-cielo-500">(excel: «{p.nome_excel}»)</span>
+              </span>
+              {!p.attiva && <span className="text-xs text-cielo-400">disattivata</span>}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* ---- dati ---- */}
+      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+        <h2 className="text-lg font-semibold text-cielo-800">I tuoi dati</h2>
+        <p className="mt-1 text-sm text-cielo-600">
+          Archivio: <b className="break-all">{cartella}</b> — con copia di sicurezza automatica
+          giornaliera nella sottocartella <b>backup</b> (ne restano 30).
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => void dbLocale.datiApp.apriCartella().then(({ error }) => error && toast.errore(error.message))}
+            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
+          >
+            Apri la cartella dati
+          </button>
+          <button
+            onClick={() =>
+              void dbLocale.datiApp.esporta().then(({ data, error }) => {
+                if (error) toast.errore(error.message)
+                else if (data) toast.ok(`Esportazione creata: ${data.percorso}`)
+              })
+            }
+            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
+          >
+            Esporta tutti i dati (file di scorta)
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}

@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   TEMI — stessa palette di TR.A.V.I. / Sistema Turnazione Guardia Medica.
+   Il tema attivo si imposta con data-tema su <html> (vedi src/lib/temi.ts).
+   I nomi Tailwind (cielo-*, panna, sidebar, velo) puntano a queste variabili.
+   ========================================================================== */
+:root,
+[data-tema='azzurro'] {
+  /* Celeste pastello (predefinito) */
+  --t-bg: #e6f0f8;
+  --t-card: #fbf7ee; /* bianco panna */
+  --t-tenue: #f3f8fc;
+  --t-bordo: #cfe2f0;
+  --t-bordo-forte: #aecde6;
+  --t-fioco: #88b4d8;
+  --t-accento: #4e88b8;
+  --t-primario: #3f7099;
+  --t-testo: #426e96;
+  --t-titolo: #37596f;
+  --t-sidebar: #f5f5f1;
+  --t-velo: rgba(55, 89, 111, 0.32);
+}
+
+[data-tema='verde'] {
+  /* Verde bosco */
+  --t-bg: #f4f1ea;
+  --t-card: #faf8f3;
+  --t-tenue: #eef3ea;
+  --t-bordo: #e0e6da;
+  --t-bordo-forte: #c9d5c0;
+  --t-fioco: #9ab488;
+  --t-accento: #476540;
+  --t-primario: #3b5535;
+  --t-testo: #57624c;
+  --t-titolo: #2b3c24;
+  --t-sidebar: #f2efe6;
+  --t-velo: rgba(43, 60, 36, 0.32);
+}
+
+[data-tema='bordeaux'] {
+  /* Bordeaux pastello (rosa antico) */
+  --t-bg: #f9f3f4;
+  --t-card: #fdfafa;
+  --t-tenue: #f4e9eb;
+  --t-bordo: #eddde0;
+  --t-bordo-forte: #ddc2c8;
+  --t-fioco: #c08a97;
+  --t-accento: #a05b6c;
+  --t-primario: #874a5a;
+  --t-testo: #6b5157;
+  --t-titolo: #5f3742;
+  --t-sidebar: #f7f1f2;
+  --t-velo: rgba(95, 55, 66, 0.32);
+}
+
+[data-tema='antracite'] {
+  /* Antracite pastello (grigio azzurrato) */
+  --t-bg: #f4f6f7;
+  --t-card: #fbfcfc;
+  --t-tenue: #eceff1;
+  --t-bordo: #e2e7ea;
+  --t-bordo-forte: #ccd4da;
+  --t-fioco: #93a1ae;
+  --t-accento: #6b7987;
+  --t-primario: #566472;
+  --t-testo: #4f5a65;
+  --t-titolo: #414c57;
+  --t-sidebar: #f3f5f6;
+  --t-velo: rgba(65, 76, 87, 0.32);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--t-bg);
+  color: var(--t-testo);
+}
+
+/* comparsa degli avvisi */
+@keyframes toast-entra {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-entra {
+  animation: toast-entra 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-entra {
+    animation: none;
+  }
+}
