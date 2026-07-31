@@ -13,9 +13,11 @@ export default function RiepiloghiPage() {
   const [postazioni, setPostazioni] = useState<Postazione[]>([])
   const [dati, setDati] = useState<Record<string, MeseTurni>>({})
   const [genero, setGenero] = useState<string | null>(null)
+  const [caricato, setCaricato] = useState(false)
 
   useEffect(() => {
     let vivo = true
+    setCaricato(false)
     async function carica() {
       const { data: elenco } = await dbLocale.postazioni.list()
       const attive = (elenco ?? []).filter((p) => p.attiva)
@@ -26,7 +28,10 @@ export default function RiepiloghiPage() {
         const { data } = await dbLocale.turni.mese(p.id, mese)
         nuovo[p.id] = data ?? { turni: [], reperibilita: [] }
       }
-      if (vivo) setDati(nuovo)
+      if (vivo) {
+        setDati(nuovo)
+        setCaricato(true)
+      }
     }
     void carica()
     return () => {
@@ -62,7 +67,11 @@ export default function RiepiloghiPage() {
         pulsanti creano il file da allegare alla mail, in Excel o in PDF.
       </p>
 
-      {conDati.length === 0 ? (
+      {!caricato ? (
+        <p className="rounded-2xl border border-cielo-200 bg-panna p-10 text-center text-sm text-cielo-500">
+          Leggo i turni di {meseIt(mese)}…
+        </p>
+      ) : conDati.length === 0 ? (
         <div className="rounded-2xl border border-cielo-200 bg-panna p-10 text-center">
           <p className="text-lg font-semibold text-cielo-800">Nessun turno inserito in {meseIt(mese)}</p>
           <p className="mt-2 text-sm text-cielo-600">

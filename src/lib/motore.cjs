@@ -530,7 +530,7 @@ function riconcilia(atteso, cedolino) {
     pagato: pagatoKm,
     delta: atteso.importi.benzina ? round2(pagatoKm - atteso.importi.benzina) : null,
     ok: true,
-    testo: prezzoRicavato ? `prezzo benzina ricavato: ${prezzoRicavato} €/L` : null,
+    testo: prezzoRicavato ? `prezzo benzina ricavato: ${Number(prezzoRicavato).toFixed(4)} €/L` : null,
   })
 
   const anomalie = righe.filter((r) => !r.ok).length
