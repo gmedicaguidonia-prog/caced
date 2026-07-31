@@ -227,9 +227,32 @@ async function turniDelMese(postazioneId: string, mese: string): Promise<MeseTur
   }
 }
 
+/** Tariffe del contratto (ACN + AIR Lazio): in un archivio nuovo si caricano
+ *  da sole al primo accesso, come faceva la versione desktop. */
+const TARIFFE_BASE = [
+  { tipo: 'onorario', dal: '2000-01', valore: 24.25, note: 'ACN 4/4/2024 (triennio 2019-21)' },
+  { tipo: 'onorario', dal: '2026-02', valore: 25.1, note: 'ACN 15/1/2026 (+0,85 €/h)' },
+  { tipo: 'air_ora', dal: '2000-01', valore: 5, note: 'Incremento onorario A.I.R. Lazio' },
+  { tipo: 'reperibilita', dal: '2000-01', valore: 35.09, note: 'Turno di reperibilità A.I.R. Lazio' },
+  { tipo: 'superfestivo_ora', dal: '2000-01', valore: 15, note: 'Maggiorazione festività di particolare importanza (AIR art. 23)' },
+  { tipo: 'enpam_pct', dal: '2000-01', valore: 15.625, note: 'ENPAM Cassa Pensione a carico del medico' },
+  { tipo: 'ra_pct', dal: '2000-01', valore: 20, note: "Ritenuta d'acconto sull'imponibile" },
+]
+let seminaTariffe: Promise<void> | null = null
+
 async function tutteLeTariffe(): Promise<Tariffa[]> {
   const r = await supabase.from('cacca_tariffe').select('*').order('tipo').order('dal')
-  return (pretendi(r) as Tariffa[]).map((t) => ({ ...t, valore: n(t.valore) }))
+  let righe = pretendi(r) as Tariffa[]
+  if (righe.length === 0) {
+    seminaTariffe ??= (async () => {
+      pretendi(await supabase.from('cacca_tariffe').insert(TARIFFE_BASE))
+    })()
+    await seminaTariffe
+    righe = pretendi(
+      await supabase.from('cacca_tariffe').select('*').order('tipo').order('dal'),
+    ) as Tariffa[]
+  }
+  return righe.map((t) => ({ ...t, valore: n(t.valore) }))
 }
 
 async function elencoBenzina(): Promise<PrezzoBenzina[]> {

@@ -165,7 +165,7 @@ export default function DomandaSede({
           </button>
           <button
             onClick={() => void conferma()}
-            disabled={attesa || (scelta === 'nuova' && !nomeNuova.trim())}
+            disabled={attesa || (s != null && scelta === 'nuova' && !nomeNuova.trim())}
             className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
           >
             {attesa ? 'Salvataggio…' : 'Conferma'}

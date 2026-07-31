@@ -19,6 +19,7 @@ declare global {
             client_id: string
             scope: string
             callback: (r: { access_token?: string; expires_in?: number; error?: string }) => void
+            error_callback?: (e: { type?: string; message?: string }) => void
           }): TokenClient
         }
       }
@@ -78,6 +79,16 @@ export async function tokenDrive(): Promise<string> {
           /* senza memoria di sessione si richiederà */
         }
         risolvi(r.access_token)
+      },
+      // senza questo, popup chiuso o bloccato = attesa infinita
+      error_callback: (e) => {
+        rifiuta(
+          new Error(
+            e?.type === 'popup_failed_to_open'
+              ? 'Il browser ha bloccato la finestra di Google: consenti i popup e riprova.'
+              : 'Permesso per Google Drive non concesso (finestra chiusa).',
+          ),
+        )
       },
     })
     client.requestAccessToken()

@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
 
 const LOGO = './logo.svg'
+
+// Accesso di collaudo: SOLO in sviluppo (npm run dev) e solo se le variabili
+// VITE_COLLAUDO_* sono definite in .env.local. Nel sito pubblicato non esiste.
+const COLLAUDO_EMAIL = import.meta.env.DEV ? (import.meta.env.VITE_COLLAUDO_EMAIL as string | undefined) : undefined
+const COLLAUDO_PASSWORD = import.meta.env.DEV ? (import.meta.env.VITE_COLLAUDO_PASSWORD as string | undefined) : undefined
 
 /** Se il rientro dal login porta un errore nell'indirizzo, lo si mostra. */
 function erroreDallUrl(): string | null {
@@ -36,6 +42,18 @@ export default function LoginPage() {
       setErrore(esito.messaggio ?? 'Accesso non riuscito.')
     }
     // se riesce, il browser va su Google e poi torna qui già connesso
+  }
+
+  async function accediCollaudo() {
+    if (!COLLAUDO_EMAIL || !COLLAUDO_PASSWORD) return
+    setErrore(null)
+    setAttesa(true)
+    const { error } = await supabase.auth.signInWithPassword({
+      email: COLLAUDO_EMAIL,
+      password: COLLAUDO_PASSWORD,
+    })
+    setAttesa(false)
+    if (error) setErrore(error.message)
   }
 
   // connesso con Google ma non nella lista degli ammessi
@@ -79,6 +97,15 @@ export default function LoginPage() {
               {attesa ? 'Un attimo…' : 'Accedi con Google'}
             </button>
             {errore && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{errore}</p>}
+            {COLLAUDO_EMAIL && (
+              <button
+                onClick={() => void accediCollaudo()}
+                disabled={attesa}
+                className="w-full rounded-lg border border-dashed border-cielo-300 py-2 text-xs text-cielo-500 transition hover:bg-cielo-50 disabled:opacity-50"
+              >
+                🔧 Accesso di collaudo (solo sviluppo)
+              </button>
+            )}
             <p className="pt-1 text-center text-[11px] leading-relaxed text-cielo-400">
               I cedolini PDF vengono salvati nella cartella «DATI CACCA» del tuo Google Drive; turni e
               calcoli in un archivio riservato al tuo indirizzo.
