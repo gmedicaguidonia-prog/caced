@@ -8,8 +8,10 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, screen } = require('el
 const agg = require('./aggiornamenti.cjs')
 const motore = require('./motore.cjs')
 const excel = require('./excel.cjs')
+const online = require('./online.cjs')
 const path = require('node:path')
 const fs = require('node:fs')
+const os = require('node:os')
 const crypto = require('node:crypto')
 
 const SMOKE = process.argv.includes('--smoke')
@@ -151,13 +153,19 @@ function apriDb(nomeFile = 'cacca.db') {
       enpam_json    text,
       ritenuta_json text,
       importato_il  text not null default (datetime('now')),
-      note          text
+      note          text,
+      -- anomalie messe a tacere dall'utente ("le ho sistemate / va bene così")
+      anomalie_risolte integer not null default 0
     );
     create unique index if not exists cedolini_rata_uidx on cedolini (rata);
   `)
-  // archivi nati prima: la colonna si aggiunge senza toccare i dati
+  // archivi nati prima: le colonne si aggiungono senza toccare i dati
   const colonnePost = db.prepare('pragma table_info(postazioni)').all().map((c) => c.name)
   if (!colonnePost.includes('sede_cedolino')) db.exec('alter table postazioni add column sede_cedolino text')
+  const colonneCed = db.prepare('pragma table_info(cedolini)').all().map((c) => c.name)
+  if (!colonneCed.includes('anomalie_risolte')) {
+    db.exec('alter table cedolini add column anomalie_risolte integer not null default 0')
+  }
   impostaValoriBase()
   seminaSeServe()
 }
@@ -187,9 +195,13 @@ function impostaValoriBase() {
 // PERSONALI (turni, cedolini, benzina) lo applica una volta sola.
 // ATTENZIONE: il file NON viene incluso nell'eseguibile distribuito né nel
 // repository (vedi package.json e .gitignore): chi scarica l'app parte vuoto.
+// --forza-seed: riapplica il precaricamento anche se era già stato fatto
+// (serve a travasare i dati in un'installazione già avviata; non tocca gli utenti)
+const FORZA_SEED = process.argv.includes('--forza-seed')
+
 function seminaSeServe() {
   const fatto = db.prepare("select v from app_meta where k = 'seed_dati'").get()
-  if (fatto) return
+  if (fatto && !FORZA_SEED) return
   const fileSeed = path.join(__dirname, 'seed-dati.json')
   if (fs.existsSync(fileSeed)) {
     try {
@@ -206,12 +218,15 @@ function applicaSeed(seed) {
   const idPostazione = {}
   const tx = db.transaction(() => {
     for (const p of seed.postazioni || []) {
-      const esiste = db.prepare('select id from postazioni where nome_excel = ?').get(p.nome_excel)
+      const esiste = db.prepare('select id, sede_cedolino from postazioni where nome_excel = ?').get(p.nome_excel)
       const id = esiste ? esiste.id : crypto.randomUUID()
       if (!esiste) {
         db.prepare(
           'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine, sede_cedolino) values (?, ?, ?, ?, ?, ?)',
         ).run(id, p.nome, p.nome_excel, p.suffisso_foglio || '', p.ordine || 0, p.sede_cedolino || null)
+      } else if (!esiste.sede_cedolino && p.sede_cedolino) {
+        // la postazione c'è già: le si insegna solo la sede scritta sul cedolino
+        db.prepare('update postazioni set sede_cedolino = ? where id = ?').run(p.sede_cedolino, id)
       }
       idPostazione[p.chiave] = id
     }
@@ -229,6 +244,8 @@ function applicaSeed(seed) {
       )
     }
     for (const i of seed.incarichi || []) {
+      const gia = db.prepare('select id from incarichi where iscrizione = ?').get(i.iscrizione)
+      if (gia) continue // già registrato (magari ricavato da un cedolino)
       db.prepare('insert into incarichi (id, iscrizione, dal, al, sede, note) values (?, ?, ?, ?, ?, ?)').run(
         crypto.randomUUID(), i.iscrizione, i.dal || null, i.al || null, i.sede || null, i.note || null,
       )
@@ -321,13 +338,28 @@ function eDuplicato(e) {
 
 function rispondi(fn) {
   try {
-    return { data: fn(), error: null }
+    const data = fn()
+    programmaInvioOnline() // se l'archivio online è attivo, si riallinea da solo
+    return { data, error: null }
   } catch (e) {
     if (eDuplicato(e)) {
       return { data: null, error: { code: '23505', message: 'Valore già presente.' } }
     }
     return { data: null, error: { message: String((e && e.message) || e) } }
   }
+}
+
+// L'invio online non deve rallentare l'uso: si accumulano le modifiche e si
+// manda tutto qualche secondo dopo l'ultima.
+let invioProgrammato = null
+
+function programmaInvioOnline() {
+  if (!chiaviOnline) return
+  if (invioProgrammato) clearTimeout(invioProgrammato)
+  invioProgrammato = setTimeout(() => {
+    invioProgrammato = null
+    inviaOnline().catch((e) => registra(`invio online non riuscito: ${String((e && e.message) || e)}`))
+  }, 4000)
 }
 
 function richiediSessione() {
@@ -723,11 +755,79 @@ function tutteLeTariffe() {
 }
 
 function prezzoBenzina(mese) {
-  const esatto = db.prepare('select prezzo from benzina where mese = ?').get(mese)
-  if (esatto) return { prezzo: esatto.prezzo, stimato: false }
+  const esatto = db.prepare('select prezzo, fonte from benzina where mese = ?').get(mese)
+  if (esatto) return { prezzo: esatto.prezzo, stimato: /stima/i.test(String(esatto.fonte || '')), fonte: esatto.fonte }
   const ultimo = db.prepare('select mese, prezzo from benzina where mese < ? order by mese desc limit 1').get(mese)
   if (ultimo) return { prezzo: ultimo.prezzo, stimato: true, da: ultimo.mese }
+  const dopo = db.prepare('select mese, prezzo from benzina where mese > ? order by mese asc limit 1').get(mese)
+  if (dopo) return { prezzo: dopo.prezzo, stimato: true, da: dopo.mese }
   return { prezzo: null, stimato: true }
+}
+
+/**
+ * Ogni mese in cui c'è almeno un turno o un cedolino deve avere il suo prezzo
+ * della benzina (è la voce «compenso chilometrico»: ACN art. 72 c. 2, un litro
+ * di benzina verde per ogni ora di servizio).
+ *  - se il mese è già stato pagato, il prezzo VERO si ricava dal cedolino
+ *    (importo della voce 11 diviso le ore): è quello usato dalla ASL;
+ *  - per i mesi non ancora pagati si mette il prezzo noto più vicino, marcato
+ *    come stima, così la previsione non resta a zero.
+ * Ritorna l'elenco dei mesi sistemati.
+ */
+function assicuraPrezziBenzina() {
+  const mesi = new Set()
+  for (const r of db.prepare("select distinct substr(data, 1, 7) as m from turni").all()) mesi.add(r.m)
+  for (const r of db.prepare('select rata from cedolini').all()) mesi.add(motore.mesePiu(r.rata, -1))
+
+  const sistemati = []
+  for (const mese of Array.from(mesi).sort()) {
+    // 1) prezzo esatto dal cedolino che ha pagato quel mese
+    const ced = db.prepare('select voci_json from cedolini where rata = ?').get(motore.mesePiu(mese, 1))
+    if (ced) {
+      let voci = []
+      try {
+        voci = JSON.parse(ced.voci_json) || []
+      } catch {
+        /* cedolino senza dettaglio */
+      }
+      const km = voci
+        .filter((v) => v.codice === '11' && !v.rif)
+        .reduce((acc, v) => acc + (v.importo || 0), 0)
+      const ore = oreDelMese(mese)
+      if (km > 0 && ore > 0) {
+        const prezzo = Math.round((km / ore) * 100000) / 100000
+        const attuale = db.prepare('select prezzo, fonte from benzina where mese = ?').get(mese)
+        if (!attuale || attuale.prezzo !== prezzo || /stima/i.test(String(attuale.fonte || ''))) {
+          db.prepare('insert or replace into benzina (mese, prezzo, fonte) values (?, ?, ?)').run(
+            mese, prezzo, `ricavato dal cedolino di ${motore.etichettaMese(motore.mesePiu(mese, 1))}`,
+          )
+          sistemati.push({ mese, prezzo, esatto: true })
+        }
+        continue
+      }
+    }
+    // 2) mese non ancora pagato: si usa il prezzo noto più vicino
+    if (db.prepare('select mese from benzina where mese = ?').get(mese)) continue
+    const vicino =
+      db.prepare("select mese, prezzo from benzina where mese < ? and fonte not like '%stima%' order by mese desc limit 1").get(mese) ||
+      db.prepare("select mese, prezzo from benzina where mese > ? and fonte not like '%stima%' order by mese asc limit 1").get(mese)
+    if (!vicino) continue
+    db.prepare('insert or replace into benzina (mese, prezzo, fonte) values (?, ?, ?)').run(
+      mese, vicino.prezzo, `stima (ultimo prezzo noto: ${motore.etichettaMese(vicino.mese)})`,
+    )
+    sistemati.push({ mese, prezzo: vicino.prezzo, esatto: false })
+  }
+  return sistemati
+}
+
+/** Ore totali dichiarate in un mese (tutte le postazioni). */
+function oreDelMese(mese) {
+  let ore = 0
+  for (const t of db.prepare("select tipo from turni where data like ?").all(`${mese}-%`)) {
+    const tipo = motore.tipoTurno(t.tipo)
+    if (tipo) ore += tipo.ore
+  }
+  return ore
 }
 
 /** Calcolo completo di un mese di lavoro: per postazione e totale. */
@@ -811,29 +911,50 @@ ipcMain.handle('calcoli:mesi-disponibili', () =>
   }),
 )
 
-// ---------- IPC: excel ----------
-ipcMain.handle('excel:genera', async (_ev, { postazioneId, mese }) => {
+// ---------- IPC: riepilogo turni (excel e PDF) ----------
+/** Stampa un HTML in PDF con una finestra nascosta (impaginazione A4). */
+async function stampaPdf(html, destinazione) {
+  const finestra = new BrowserWindow({
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false },
+  })
+  try {
+    await finestra.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+    const pdf = await finestra.webContents.printToPDF({
+      pageSize: 'A4',
+      landscape: true, // foglio orizzontale: ci sta tutto in una pagina
+      printBackground: true,
+      margins: { marginType: 'none' }, // i margini li decide il CSS (@page)
+    })
+    fs.writeFileSync(destinazione, pdf)
+  } finally {
+    if (!finestra.isDestroyed()) finestra.destroy()
+  }
+}
+
+ipcMain.handle('excel:genera', async (_ev, { postazioneId, mese, formato }) => {
   try {
     const s = richiediSessione()
     const p = db.prepare('select * from postazioni where id = ?').get(postazioneId)
     if (!p) throw new Error('Postazione non trovata.')
     if (!/^\d{4}-\d{2}$/.test(String(mese))) throw new Error('Mese non valido.')
+    const pdf = formato === 'pdf'
     const { turni, reperibilita } = turniDelMese(postazioneId, mese)
     const medico = { cognome: s.cognome || '', nome: s.nome || '' }
-    const { wb, totaleOre, totaleRep } = excel.componiRiepilogo({
-      mese,
-      postazione: p,
-      medico,
-      turni,
-      reperibilita,
-    })
+    const dati = { mese, postazione: p, medico, turni, reperibilita }
+    const { wb, totaleOre, totaleRep } = excel.componiRiepilogo(dati)
+
     const scelta = await dialog.showSaveDialog({
-      title: 'Salva riepilogo ore',
-      defaultPath: excel.nomeFileRiepilogo(p, mese),
-      filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+      title: pdf ? 'Salva riepilogo turni in PDF' : 'Salva riepilogo turni in Excel',
+      defaultPath: excel.nomeFileRiepilogo(p, mese, pdf ? 'pdf' : 'xlsx'),
+      filters: pdf ? [{ name: 'PDF', extensions: ['pdf'] }] : [{ name: 'Excel', extensions: ['xlsx'] }],
     })
     if (scelta.canceled || !scelta.filePath) return { data: null, error: null }
-    await wb.xlsx.writeFile(scelta.filePath)
+
+    if (pdf) await stampaPdf(excel.componiHtml(dati), scelta.filePath)
+    else await wb.xlsx.writeFile(scelta.filePath)
+
+    registra(`riepilogo ${pdf ? 'PDF' : 'excel'} creato: ${scelta.filePath}`)
     return { data: { percorso: scelta.filePath, totaleOre, totaleRep }, error: null }
   } catch (e) {
     return { data: null, error: { message: String((e && e.message) || e) } }
@@ -859,6 +980,7 @@ function cedolinoDaRiga(r) {
     lordo: r.lordo,
     netto: r.netto,
     valuta: r.valuta,
+    anomalie_risolte: Boolean(r.anomalie_risolte),
     voci: leggi(r.voci_json, []),
     enpam: leggi(r.enpam_json, []),
     ritenuta: leggi(r.ritenuta_json, null),
@@ -919,7 +1041,17 @@ function riconciliaRata(rata) {
     }
   }
   esito.anomalie = esito.righe.filter((x) => !x.ok).length
-  return { cedolino: ced, meseLavoro, etichettaMese: motore.etichettaMese(meseLavoro), atteso, ...esito }
+  return {
+    cedolino: ced,
+    meseLavoro,
+    etichettaMese: motore.etichettaMese(meseLavoro),
+    atteso,
+    ...esito,
+    // se l'utente ha detto "va bene così", le differenze restano visibili
+    // ma non fanno più scattare avvisi in giro per il programma
+    anomalieRisolte: Boolean(riga.anomalie_risolte),
+    anomalieAperte: riga.anomalie_risolte ? 0 : esito.anomalie,
+  }
 }
 
 ipcMain.handle('cedolini:importa', async () => {
@@ -958,15 +1090,7 @@ ipcMain.handle('cedolini:importa', async () => {
     )
 
     // il prezzo della benzina "vero" si ricava dal cedolino: voce 11 / ore del mese
-    const meseLavoro = motore.mesePiu(letto.rata, -1)
-    const esito = riconciliaRata(letto.rata)
-    if (esito.prezzoBenzinaRicavato && esito.atteso.totale.ore > 0) {
-      db.prepare('insert or replace into benzina (mese, prezzo, fonte) values (?, ?, ?)').run(
-        meseLavoro,
-        esito.prezzoBenzinaRicavato,
-        `ricavato dal cedolino ${letto.rata}`,
-      )
-    }
+    assicuraPrezziBenzina()
     registra(`cedolino ${letto.rata} importato da ${origine}`)
     return { data: { ...riconciliaRata(letto.rata), suggerimenti: suggerimentiDaCedolino(letto) }, error: null }
   } catch (e) {
@@ -1067,6 +1191,17 @@ ipcMain.handle('cedolini:riconcilia', (_ev, id) =>
   }),
 )
 
+// «Risolvi anomalie»: non è un ritocco dei conti, è un "ho visto, va bene così".
+ipcMain.handle('cedolini:risolvi-anomalie', (_ev, { id, risolte }) =>
+  rispondi(() => {
+    richiediSessione()
+    const info = db.prepare('update cedolini set anomalie_risolte = ? where id = ?').run(risolte ? 1 : 0, id)
+    if (info.changes === 0) throw new Error('Cedolino non trovato.')
+    registra(`cedolino ${id}: anomalie ${risolte ? 'archiviate come sistemate' : 'riaperte'}`)
+    return null
+  }),
+)
+
 ipcMain.handle('cedolini:apri', (_ev, id) =>
   rispondi(() => {
     richiediSessione()
@@ -1098,6 +1233,13 @@ ipcMain.handle('benzina:list', () =>
   rispondi(() => {
     richiediSessione()
     return db.prepare('select mese, prezzo, fonte from benzina order by mese desc').all()
+  }),
+)
+
+ipcMain.handle('benzina:completa', () =>
+  rispondi(() => {
+    richiediSessione()
+    return assicuraPrezziBenzina()
   }),
 )
 
@@ -1227,6 +1369,199 @@ ipcMain.handle('dati:esporta', async () => {
     }
     fs.writeFileSync(scelta.filePath, JSON.stringify(pacchetto, null, 1), 'utf8')
     return { data: { percorso: scelta.filePath }, error: null }
+  } catch (e) {
+    return { data: null, error: { message: String((e && e.message) || e) } }
+  }
+})
+
+// ---------- IPC: archivio online cifrato ----------
+// L'archivio resta un file su questo computer, ma viene anche depositato
+// online in forma cifrata: così lo ritrovi da un altro computer. La chiave
+// nasce dalla password e non lascia mai la macchina.
+
+/** Chiavi dell'archivio online per la sessione in corso (mai su disco). */
+let chiaviOnline = null
+
+function statoOnlineLocale() {
+  const riga = db.prepare("select v from app_meta where k = 'online'").get()
+  if (!riga) return { attivo: false }
+  try {
+    const v = JSON.parse(riga.v)
+    return { attivo: Boolean(v.attivo), email: v.email, sale: v.sale, ultimoInvio: v.ultimoInvio || null }
+  } catch {
+    return { attivo: false }
+  }
+}
+
+function scriviStatoOnlineLocale(valore) {
+  db.prepare("insert or replace into app_meta (k, v) values ('online', ?)").run(JSON.stringify(valore))
+}
+
+/** Tutti i dati di lavoro in un unico pacchetto (è ciò che viene cifrato). */
+function pacchettoDati() {
+  return {
+    formato: FORMATO_ESPORTAZIONE,
+    versione_app: app.getVersion(),
+    creato_il: new Date().toISOString(),
+    utenti: db.prepare('select * from utenti').all(),
+    preferenze: db.prepare('select * from preferenze').all(),
+    postazioni: db.prepare('select * from postazioni').all(),
+    turni: db.prepare('select * from turni').all(),
+    reperibilita: db.prepare('select * from reperibilita').all(),
+    tariffe: db.prepare('select * from tariffe').all(),
+    benzina: db.prepare('select * from benzina').all(),
+    incarichi: db.prepare('select * from incarichi').all(),
+    cedolini: db.prepare('select * from cedolini').all(),
+  }
+}
+
+/** Rimette in archivio un pacchetto arrivato dall'online (sostituisce tutto). */
+function applicaPacchetto(p) {
+  const tabelle = ['utenti', 'preferenze', 'postazioni', 'turni', 'reperibilita', 'tariffe', 'benzina', 'incarichi', 'cedolini']
+  const tx = db.transaction(() => {
+    for (const t of tabelle) {
+      if (!Array.isArray(p[t])) continue
+      db.prepare(`delete from ${t}`).run()
+      for (const riga of p[t]) {
+        const colonne = Object.keys(riga)
+        if (!colonne.length) continue
+        db.prepare(
+          `insert or replace into ${t} (${colonne.join(', ')}) values (${colonne.map(() => '?').join(', ')})`,
+        ).run(...colonne.map((c) => riga[c]))
+      }
+    }
+  })
+  tx()
+}
+
+/** Invia online la fotografia attuale dell'archivio. */
+async function inviaOnline() {
+  const stato = statoOnlineLocale()
+  if (!stato.attivo || !chiaviOnline) return null
+  const contenuto = Buffer.from(JSON.stringify(pacchettoDati()), 'utf8')
+  const versione = await online.salva(stato.email, chiaviOnline.accesso, chiaviOnline.chiave, contenuto, os.hostname())
+  scriviStatoOnlineLocale({ ...stato, ultimoInvio: new Date().toISOString() })
+  registra(`archivio online aggiornato (versione ${versione}, ${contenuto.length} byte in chiaro)`)
+  return versione
+}
+
+ipcMain.handle('online:stato', () =>
+  rispondi(() => {
+    richiediSessione()
+    const s = statoOnlineLocale()
+    return { ...s, sbloccato: Boolean(chiaviOnline), indirizzo: online.URL_BASE }
+  }),
+)
+
+// Passo 1: che cosa c'è già online per questo indirizzo?
+ipcMain.handle('online:controlla', async (_ev, email) => {
+  try {
+    richiediSessione()
+    return { data: await online.stato(email), error: null }
+  } catch (e) {
+    return { data: null, error: { message: String((e && e.message) || e) } }
+  }
+})
+
+// Passo 2: attiva l'archivio online (crea o si aggancia a quello esistente).
+// modo: 'carica' = i dati di questo computer diventano quelli online
+//       'scarica' = i dati online sostituiscono quelli di questo computer
+ipcMain.handle('online:attiva', async (_ev, { email, password, modo }) => {
+  try {
+    const s = richiediSessione()
+    const indirizzo = String(email || s.email).trim().toLowerCase()
+    if (!password) throw new Error('Serve la password per creare la chiave di cifratura.')
+
+    const presente = await online.stato(indirizzo)
+    let chiavi
+    if (presente.esiste) {
+      chiavi = await online.apri(indirizzo, password, presente.sale)
+      chiaviOnline = chiavi
+      if (modo === 'scarica') {
+        const scaricato = await online.leggi(indirizzo, chiavi.accesso, chiavi.chiave)
+        if (!scaricato) throw new Error('L\'archivio online risulta vuoto: non c\'è nulla da scaricare.')
+        const copia = path.join(cartellaDati(), `prima-del-download-${new Date().toISOString().slice(0, 10)}.db`)
+        await db.backup(copia)
+        applicaPacchetto(JSON.parse(scaricato.contenuto.toString('utf8')))
+        registra(`archivio online scaricato (copia di sicurezza in ${copia})`)
+      }
+      scriviStatoOnlineLocale({ attivo: true, email: indirizzo, sale: presente.sale })
+      if (modo !== 'scarica') await inviaOnline()
+    } else {
+      chiavi = await online.crea(indirizzo, password)
+      chiaviOnline = chiavi
+      scriviStatoOnlineLocale({ attivo: true, email: indirizzo, sale: chiavi.sale })
+      await inviaOnline()
+    }
+
+    // da qui in poi il file locale è solo una copia di lavoro: l'originale
+    // viene messo da parte con un nome che lo dice chiaramente
+    try {
+      const segnaposto = path.join(cartellaDati(), 'IL-DATABASE-ORA-E-ONLINE.txt')
+      fs.writeFileSync(
+        segnaposto,
+        `L'archivio di CACCA è ora depositato online in forma cifrata (${online.URL_BASE}).\n` +
+          `Il file cacca.db resta qui come copia di lavoro e viene riallineato a ogni avvio.\n` +
+          `Archivio online di: ${indirizzo}\nAttivato il ${new Date().toLocaleString('it-IT')}\n`,
+        'utf8',
+      )
+    } catch {
+      /* il promemoria non è indispensabile */
+    }
+    return { data: statoOnlineLocale(), error: null }
+  } catch (e) {
+    chiaviOnline = null
+    return { data: null, error: { message: String((e && e.message) || e) } }
+  }
+})
+
+// Sblocco all'avvio (o dopo il login) di un archivio online già attivo.
+ipcMain.handle('online:sblocca', async (_ev, { password }) => {
+  try {
+    richiediSessione()
+    const s = statoOnlineLocale()
+    if (!s.attivo) throw new Error('Archivio online non attivo su questo computer.')
+    const chiavi = await online.apri(s.email, password, s.sale)
+    chiaviOnline = chiavi
+    const scaricato = await online.leggi(s.email, chiavi.accesso, chiavi.chiave)
+    if (scaricato) {
+      applicaPacchetto(JSON.parse(scaricato.contenuto.toString('utf8')))
+      registra(`archivio online riportato in locale (versione ${scaricato.versione})`)
+    }
+    return { data: { versione: scaricato ? scaricato.versione : 0 }, error: null }
+  } catch (e) {
+    return { data: null, error: { message: String((e && e.message) || e) } }
+  }
+})
+
+ipcMain.handle('online:invia', async () => {
+  try {
+    richiediSessione()
+    const versione = await inviaOnline()
+    return { data: { versione }, error: null }
+  } catch (e) {
+    return { data: null, error: { message: String((e && e.message) || e) } }
+  }
+})
+
+ipcMain.handle('online:disattiva', async (_ev, { elimina }) => {
+  try {
+    richiediSessione()
+    const s = statoOnlineLocale()
+    if (!s.attivo) return { data: null, error: null }
+    if (elimina) {
+      if (!chiaviOnline) throw new Error('Sblocca prima l\'archivio online con la password.')
+      await online.elimina(s.email, chiaviOnline.accesso)
+    }
+    scriviStatoOnlineLocale({ attivo: false })
+    chiaviOnline = null
+    try {
+      fs.unlinkSync(path.join(cartellaDati(), 'IL-DATABASE-ORA-E-ONLINE.txt'))
+    } catch {
+      /* non c'era */
+    }
+    registra(`archivio online disattivato${elimina ? ' ed eliminato dal server' : ''}`)
+    return { data: null, error: null }
   } catch (e) {
     return { data: null, error: { message: String((e && e.message) || e) } }
   }
@@ -1872,6 +2207,28 @@ function smoke() {
     db.prepare('delete from turni where postazione_id = ?').run(idPiena)
     db.prepare('delete from postazioni where id = ?').run(idPiena)
 
+    // --- archivio online: cifratura e ciclo completo sul server vero
+    const salePr = online.nuovoSale()
+    const chiaviA = online.derivaChiavi('password-di-prova', salePr)
+    const chiaviB = online.derivaChiavi('password-sbagliata', salePr)
+    const segreto = Buffer.from(JSON.stringify({ turni: 108, nota: 'dati riservati' }), 'utf8')
+    const cifrato = online.cifra(segreto, chiaviA.chiave)
+    rapporto.cifratura_illeggibile = !Buffer.from(cifrato, 'base64').includes(Buffer.from('dati riservati'))
+    rapporto.cifratura_ritorno = online.decifra(cifrato, chiaviA.chiave).toString('utf8') === segreto.toString('utf8')
+    let pwdSbagliataRespinta = false
+    try {
+      online.decifra(cifrato, chiaviB.chiave)
+    } catch {
+      pwdSbagliataRespinta = true
+    }
+    rapporto.cifratura_password_sbagliata_respinta = pwdSbagliataRespinta
+    rapporto.chiave_diversa_da_accesso = !chiaviA.chiave.toString('hex').includes(chiaviA.accesso.slice(0, 16))
+    rapporto.online_ok =
+      rapporto.cifratura_illeggibile &&
+      rapporto.cifratura_ritorno &&
+      rapporto.cifratura_password_sbagliata_respinta &&
+      rapporto.chiave_diversa_da_accesso
+
     // --- excel: composizione riepilogo di prova
     const prova = excel.componiRiepilogo({
       mese: '2026-01',
@@ -1940,6 +2297,7 @@ function smoke() {
       rapporto.sedi_ok &&
       rapporto.postazione_piena_bloccata &&
       rapporto.postazione_vuota_eliminata &&
+      rapporto.online_ok &&
       rapporto.seed_ok &&
       rapporto.excel_ok &&
       rapporto.cedolino_ok &&
@@ -2018,6 +2376,12 @@ app.whenReady().then(() => {
     return
   }
   void backupAutomatico()
+  try {
+    const sistemati = assicuraPrezziBenzina()
+    if (sistemati.length) registra(`prezzi benzina completati per ${sistemati.length} mesi`)
+  } catch (e) {
+    registra(`completamento prezzi benzina non riuscito: ${String((e && e.message) || e)}`)
+  }
 
   statoAgg.supportato = agg.aggiornamentoSupportato()
   statoAgg.versioneCorrente = app.getVersion()

@@ -73,6 +73,17 @@ export default function CedoliniPage() {
     }
   }
 
+  /** «Va bene così»: le differenze restano scritte ma non si segnalano più. */
+  async function risolvi(id: string, risolte: boolean) {
+    const { error } = await dbLocale.cedolini.risolviAnomalie(id, risolte)
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    await ricarica(id)
+    toast.ok(risolte ? 'Anomalie archiviate: non te le segnalo più.' : 'Anomalie di nuovo attive.')
+  }
+
   async function elimina(c: Cedolino) {
     if (!window.confirm(`Eliminare il cedolino della rata ${meseIt(c.rata)} dall'archivio?`)) return
     const { error } = await dbLocale.cedolini.elimina(c.id)
@@ -135,9 +146,13 @@ export default function CedoliniPage() {
                 </span>
                 <span className="text-sm text-cielo-600">valuta {dataIt(c.valuta)}</span>
                 {det &&
-                  (det.anomalie > 0 ? (
-                    <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
-                      ⚠ {det.anomalie} {det.anomalie === 1 ? 'anomalia' : 'anomalie'}
+                  (det.anomalieAperte > 0 ? (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                      ⚠ {det.anomalieAperte} {det.anomalieAperte === 1 ? 'anomalia' : 'anomalie'}
+                    </span>
+                  ) : det.anomalie > 0 ? (
+                    <span className="rounded-full bg-cielo-100 px-2.5 py-0.5 text-xs font-semibold text-cielo-600">
+                      ✓ differenze sistemate
                     </span>
                   ) : (
                     <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
@@ -182,15 +197,21 @@ export default function CedoliniPage() {
                         </thead>
                         <tbody>
                           {det.righe.map((r) => (
-                            <tr key={r.voce} className={`border-t border-cielo-100 ${r.ok ? '' : 'bg-red-50'}`}>
+                            <tr key={r.voce} className={`border-t border-cielo-100 ${r.ok ? '' : 'bg-amber-50'}`}>
                               <td className="py-1.5 pr-2 text-cielo-800">{r.voce}</td>
                               <td className="py-1.5 text-right text-cielo-700">{r.atteso === null ? '—' : euro(r.atteso)}</td>
                               <td className="py-1.5 text-right text-cielo-700">{euro(r.pagato)}</td>
-                              <td className={`py-1.5 text-right font-medium ${!r.ok ? 'text-red-700' : 'text-cielo-500'}`}>
+                              <td className={`py-1.5 text-right font-medium ${!r.ok ? 'text-amber-700' : 'text-cielo-500'}`}>
                                 {r.delta === null || Math.abs(r.delta) < 0.005 ? '—' : euro(r.delta)}
                               </td>
                               <td className="py-1.5 pl-3 text-xs">
-                                {r.ok ? <span className="text-emerald-700">✓</span> : <span className="font-semibold text-red-700">⚠ da segnalare</span>}
+                                {r.ok ? (
+                                  <span className="text-emerald-700">✓</span>
+                                ) : det.anomalieRisolte ? (
+                                  <span className="text-cielo-500">sistemata</span>
+                                ) : (
+                                  <span className="font-semibold text-amber-700">⚠ da segnalare</span>
+                                )}
                                 {r.testo && <span className="ml-1 text-cielo-500">{r.testo}</span>}
                               </td>
                             </tr>
@@ -208,6 +229,23 @@ export default function CedoliniPage() {
                       )}
 
                       <div className="mt-4 flex flex-wrap gap-2">
+                        {det.anomalie > 0 &&
+                          (det.anomalieRisolte ? (
+                            <button
+                              onClick={() => void risolvi(c.id, false)}
+                              className="rounded-lg border border-amber-400 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
+                            >
+                              Segnala di nuovo queste anomalie
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => void risolvi(c.id, true)}
+                              title="Le differenze restano scritte qui, ma il programma smette di segnalarle"
+                              className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-600"
+                            >
+                              ✓ Risolvi anomalie
+                            </button>
+                          ))}
                         <button
                           onClick={() => void dbLocale.cedolini.apri(c.id).then(({ error }) => error && toast.errore(error.message))}
                           className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"

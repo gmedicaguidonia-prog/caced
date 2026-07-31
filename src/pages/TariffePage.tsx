@@ -4,6 +4,7 @@ import type { Incarico, Postazione, PrezzoBenzina, Tariffa } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { useEscape } from '../hooks/useEscape'
+import ArchivioOnline from '../components/ArchivioOnline'
 import { euro, meseIt, meseOggi } from '../lib/formato'
 
 const NOMI_TARIFFE: Record<string, string> = {
@@ -64,6 +65,23 @@ export default function TariffePage() {
 
   // --- benzina ---
   const [nuovaBenzina, setNuovaBenzina] = useState({ mese: meseOggi(), prezzo: '' })
+
+  async function completaBenzina() {
+    const { data, error } = await dbLocale.benzina.completa()
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    await carica()
+    if (!data || data.length === 0) {
+      toast.ok('Tutti i mesi con turni hanno già il loro prezzo.')
+      return
+    }
+    const esatti = data.filter((d) => d.esatto).length
+    toast.ok(
+      `Sistemati ${data.length} mesi: ${esatti} dal cedolino (valore esatto), ${data.length - esatti} per stima.`,
+    )
+  }
   async function salvaBenzina() {
     const prezzo = Number(String(nuovaBenzina.prezzo).replace(',', '.'))
     const { error } = await dbLocale.benzina.imposta(nuovaBenzina.mese, prezzo)
@@ -175,18 +193,38 @@ export default function TariffePage() {
 
       {/* ---- benzina ---- */}
       <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
-        <h2 className="text-lg font-semibold text-cielo-800">Prezzo benzina (chilometrico)</h2>
-        <p className="mt-1 text-sm text-cielo-600">
-          L'ACN (art. 72 c. 2) riconosce il costo di 1 litro di benzina verde per ogni ora di attività.
-          Quando importi un cedolino il prezzo del mese viene ricavato da solo; qui puoi inserirlo a mano
-          per rendere esatta la previsione.
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-cielo-800">Prezzo benzina (chilometrico)</h2>
+          <button
+            onClick={() => void completaBenzina()}
+            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+          >
+            Completa i mesi mancanti
+          </button>
+        </div>
+        <p className="mt-1 text-sm leading-relaxed text-cielo-600">
+          L'ACN (art. 72 c. 2) riconosce «il costo di un litro di benzina verde per ogni ora di attività»:
+          il riferimento nazionale è il prezzo medio self service rilevato dal MIMIT (Osservaprezzi
+          Carburanti). Il valore <b>davvero applicato dalla ASL</b> però si legge dal cedolino, quindi CACCA
+          lo ricava da lì (voce 11 ÷ ore) per ogni mese già pagato; per i mesi non ancora pagati usa
+          l'ultimo prezzo noto e lo segnala come stima.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {benzina.map((b) => (
-            <span key={b.mese} className="rounded-full border border-cielo-200 bg-white px-3 py-1 text-xs text-cielo-700" title={b.fonte ?? ''}>
-              {meseIt(b.mese)}: <b>{b.prezzo.toLocaleString('it-IT', { maximumFractionDigits: 5 })} €/L</b>
-            </span>
-          ))}
+          {benzina.map((b) => {
+            const stima = /stima/i.test(b.fonte ?? '')
+            return (
+              <span
+                key={b.mese}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  stima ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-cielo-200 bg-white text-cielo-700'
+                }`}
+                title={b.fonte ?? ''}
+              >
+                {meseIt(b.mese)}: <b>{b.prezzo.toLocaleString('it-IT', { maximumFractionDigits: 5 })} €/L</b>
+                {stima && ' (stima)'}
+              </span>
+            )
+          })}
         </div>
         <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl bg-cielo-50 p-3">
           <label className="text-xs text-cielo-700">
@@ -334,6 +372,9 @@ export default function TariffePage() {
           </button>
         </div>
       </section>
+
+      {/* ---- archivio online cifrato ---- */}
+      <ArchivioOnline />
     </div>
   )
 }

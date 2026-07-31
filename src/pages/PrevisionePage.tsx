@@ -1,17 +1,30 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
-import type { CalcoloMese, RaccoltaMese } from '../lib/db'
-import { euro, dataIt, meseIt, meseOggi, mesePiu } from '../lib/formato'
+import type { CalcoloMese, RaccoltaMese, Riconciliazione } from '../lib/db'
+import { useMese } from '../hooks/useMese'
+import { euro, dataIt, meseIt } from '../lib/formato'
 
 export default function PrevisionePage() {
-  const [mese, setMese] = useState(mesePiu(meseOggi(), -1))
+  const { mese } = useMese()
   const [r, setR] = useState<RaccoltaMese | null>(null)
+  /** confronto con il cedolino della rata corrispondente, se già arrivato */
+  const [confronto, setConfronto] = useState<Riconciliazione | null>(null)
 
   useEffect(() => {
     let vivo = true
-    void dbLocale.calcoli.mese(mese).then(({ data }) => {
-      if (vivo) setR(data)
+    setR(null)
+    setConfronto(null)
+    void dbLocale.calcoli.mese(mese).then(async ({ data }) => {
+      if (!vivo) return
+      setR(data)
+      if (!data) return
+      // il cedolino che paga queste ore è quello della rata successiva
+      const { data: elenco } = await dbLocale.cedolini.list()
+      const ced = (elenco ?? []).find((c) => c.rata === data.rata)
+      if (!ced || !vivo) return
+      const { data: ric } = await dbLocale.cedolini.riconcilia(ced.id)
+      if (vivo) setConfronto(ric)
     })
     return () => {
       vivo = false
@@ -20,26 +33,9 @@ export default function PrevisionePage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Previsione Compensi</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMese(mesePiu(mese, -1))}
-            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-cielo-700 transition hover:bg-cielo-50"
-          >
-            ‹
-          </button>
-          <span className="min-w-44 text-center text-lg font-semibold text-cielo-800">
-            Ore di {meseIt(mese)}
-          </span>
-          <button
-            onClick={() => setMese(mesePiu(mese, 1))}
-            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-cielo-700 transition hover:bg-cielo-50"
-          >
-            ›
-          </button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold tracking-tight text-cielo-800">
+        Previsione Compensi — ore di {meseIt(mese)}
+      </h1>
 
       {r && r.totale.ore === 0 && r.totale.reperibilita === 0 && (
         <div className="rounded-2xl border border-cielo-200 bg-panna p-10 text-center">
@@ -58,23 +54,30 @@ export default function PrevisionePage() {
 
       {r && (r.totale.ore > 0 || r.totale.reperibilita > 0) && (
         <>
-          <div className="flex flex-wrap items-center gap-6 rounded-2xl border border-cielo-200 bg-panna p-5">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Netto previsto</p>
-              <p className="text-4xl font-bold text-cielo-800">{euro(r.totale.netto)}</p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* previsione calcolata dalle ore dichiarate */}
+            <div className="rounded-2xl border border-cielo-200 bg-panna p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">
+                Previsto in base ai turni
+              </p>
+              <p className="mt-1 text-4xl font-bold text-cielo-800">{euro(r.totale.netto)}</p>
+              <p className="text-sm text-cielo-600">netto · lordo {euro(r.totale.lordo)}</p>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-cielo-700">
+                <span>
+                  Rata <b>{meseIt(r.rata)}</b>
+                </span>
+                <span>
+                  Accredito <b>{dataIt(r.valuta)}</b>
+                </span>
+                <span>
+                  <b>{r.totale.ore} h</b>
+                  {r.totale.reperibilita > 0 && <> · {r.totale.reperibilita} rep.</>}
+                </span>
+              </div>
             </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Rata</p>
-              <p className="text-xl font-semibold text-cielo-700">{meseIt(r.rata)}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Accredito previsto</p>
-              <p className="text-xl font-semibold text-cielo-700">{dataIt(r.valuta)}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-cielo-500">Ore totali</p>
-              <p className="text-xl font-semibold text-cielo-700">{r.totale.ore} h</p>
-            </div>
+
+            {/* stesse cifre, ma quelle davvero pagate */}
+            <ConfrontoCedolino confronto={confronto} rata={r.rata} />
           </div>
 
           {r.benzina.stimato && r.totale.ore > 0 && (
@@ -109,6 +112,70 @@ export default function PrevisionePage() {
             c.2) · ENPAM {r.totale.tariffe.enpam}% · ritenuta d'acconto {r.totale.tariffe.ra}%.
           </p>
         </>
+      )}
+    </div>
+  )
+}
+
+/** Le stesse cifre prese dal cedolino, con l'elenco di quello che non torna. */
+function ConfrontoCedolino({ confronto, rata }: { confronto: Riconciliazione | null; rata: string }) {
+  if (!confronto) {
+    return (
+      <div className="rounded-2xl border border-dashed border-cielo-300 bg-cielo-50/50 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">Realmente pagato</p>
+        <p className="mt-3 text-sm leading-relaxed text-cielo-600">
+          Il cedolino della rata di <b>{meseIt(rata)}</b> non è ancora in archivio. Quando lo importi,
+          qui compaiono le cifre vere accanto a quelle previste, con l'elenco di ciò che non quadra.
+        </p>
+        <Link
+          to="/cedolini"
+          className="mt-3 inline-block rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+        >
+          Importa il cedolino
+        </Link>
+      </div>
+    )
+  }
+
+  const c = confronto.cedolino
+  const problemi = confronto.righe.filter((x) => !x.ok)
+  const arretrati = confronto.arretrati.reduce((a, v) => a + (v.importo ?? 0), 0)
+
+  return (
+    <div
+      className={`rounded-2xl border-2 p-5 ${problemi.length ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50'}`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">
+        Realmente pagato — cedolino di {meseIt(c.rata)}
+      </p>
+      <p className="mt-1 text-4xl font-bold text-cielo-800">{euro(c.netto)}</p>
+      <p className="text-sm text-cielo-600">
+        netto · lordo {euro(c.lordo)} · accreditato il {dataIt(c.valuta)}
+      </p>
+
+      {problemi.length === 0 ? (
+        <p className="mt-3 text-sm font-medium text-emerald-800">
+          ✓ Tutto quadra con le ore che avevi dichiarato.
+        </p>
+      ) : (
+        <div className="mt-3">
+          <p className="text-sm font-semibold text-amber-800">Non quadra:</p>
+          <ul className="mt-1 space-y-1 text-sm text-amber-900">
+            {problemi.map((p) => (
+              <li key={p.voce}>
+                <b>{p.voce}</b>: previsti {euro(p.atteso)}, pagati {euro(p.pagato)}{' '}
+                <b>({(p.delta ?? 0) > 0 ? '+' : ''}
+                {euro(p.delta)})</b>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {arretrati > 0 && (
+        <p className="mt-2 text-xs text-cielo-600">
+          Compresi {euro(arretrati)} di arretrati di mesi precedenti.
+        </p>
       )}
     </div>
   )

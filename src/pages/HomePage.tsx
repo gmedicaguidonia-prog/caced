@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
 import type { Cedolino, RaccoltaMese, Riconciliazione } from '../lib/db'
-import { euro, dataIt, meseIt, meseOggi, mesePiu } from '../lib/formato'
+import { useMese } from '../hooks/useMese'
+import { euro, dataIt, meseIt, mesePiu } from '../lib/formato'
 
 export default function HomePage() {
-  const [mese, setMese] = useState<string | null>(null)
+  const { mese } = useMese()
   const [raccolta, setRaccolta] = useState<RaccoltaMese | null>(null)
   const [precedente, setPrecedente] = useState<RaccoltaMese | null>(null)
   const [cedolini, setCedolini] = useState<Cedolino[]>([])
@@ -18,17 +19,13 @@ export default function HomePage() {
     let vivo = true
     async function carica() {
       const { data: mesi } = await dbLocale.calcoli.mesiDisponibili()
-      const corrente = meseOggi()
-      const conDati = mesi ?? []
-      const scelto = conDati.length ? (conDati.includes(corrente) ? corrente : conDati[conDati.length - 1]) : corrente
-      if (vivo) setHaDati(conDati.length > 0)
+      if (vivo) setHaDati((mesi ?? []).length > 0)
       const [{ data: r }, { data: rPrec }, { data: ced }] = await Promise.all([
-        dbLocale.calcoli.mese(scelto),
-        dbLocale.calcoli.mese(mesePiu(scelto, -1)),
+        dbLocale.calcoli.mese(mese),
+        dbLocale.calcoli.mese(mesePiu(mese, -1)),
         dbLocale.cedolini.list(),
       ])
       if (!vivo) return
-      setMese(scelto)
       setRaccolta(r)
       setPrecedente(rPrec)
       setCedolini(ced ?? [])
@@ -37,7 +34,8 @@ export default function HomePage() {
       const problemi: { rata: string; righe: Riconciliazione['righe'] }[] = []
       for (const c of ced ?? []) {
         const { data: esito } = await dbLocale.cedolini.riconcilia(c.id)
-        if (esito && esito.anomalie > 0) {
+        // quelle già archiviate come «va bene così» non si segnalano più
+        if (esito && esito.anomalieAperte > 0) {
           problemi.push({ rata: c.rata, righe: esito.righe.filter((x) => !x.ok) })
         }
       }
@@ -50,7 +48,7 @@ export default function HomePage() {
     return () => {
       vivo = false
     }
-  }, [])
+  }, [mese])
 
   const mancante = allarmi.reduce(
     (acc, a) => acc + a.righe.reduce((s, r) => s + Math.max(0, -(r.delta ?? 0)), 0),
@@ -63,13 +61,13 @@ export default function HomePage() {
 
       {/* ---- allarme anomalie sui cedolini ---- */}
       {pronto && allarmi.length > 0 && (
-        <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-5">
-          <p className="font-semibold text-red-800">
+        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+          <p className="font-semibold text-amber-800">
             ⚠ Il controllo dei cedolini ha trovato {allarmi.length}{' '}
             {allarmi.length === 1 ? 'rata con anomalie' : 'rate con anomalie'} — mancano circa{' '}
             {euro(mancante)} lordi
           </p>
-          <ul className="mt-2 space-y-1 text-sm text-red-700">
+          <ul className="mt-2 space-y-1 text-sm text-amber-900">
             {allarmi.map((a) => (
               <li key={a.rata}>
                 <b>Rata {meseIt(a.rata)}:</b>{' '}
@@ -79,7 +77,7 @@ export default function HomePage() {
           </ul>
           <Link
             to="/cedolini"
-            className="mt-3 inline-block rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+            className="mt-3 inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-600"
           >
             Vai ai cedolini per i dettagli
           </Link>

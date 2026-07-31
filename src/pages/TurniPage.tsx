@@ -3,7 +3,8 @@ import { dbLocale, TIPI_TURNO } from '../lib/db'
 import type { MeseTurni, Postazione, TipoTurnoCodice, Turno } from '../lib/db'
 import { useToast } from '../hooks/useToast'
 import { useEscape } from '../hooks/useEscape'
-import { GIORNI_BREVI, giorniNelMese, giornoSettimana, meseIt, meseOggi, mesePiu } from '../lib/formato'
+import { useMese } from '../hooks/useMese'
+import { GIORNI_BREVI, giorniNelMese, giornoSettimana, meseIt } from '../lib/formato'
 
 const COLORE_TIPO: Record<TipoTurnoCodice, string> = {
   nott12: 'bg-indigo-100 text-indigo-800 border-indigo-300',
@@ -17,7 +18,7 @@ type Selezione = { postazione: Postazione; data: string }
 
 export default function TurniPage() {
   const toast = useToast()
-  const [mese, setMese] = useState(meseOggi())
+  const { mese } = useMese()
   const [postazioni, setPostazioni] = useState<Postazione[]>([])
   const [dati, setDati] = useState<Record<string, MeseTurni>>({})
   const [selezione, setSelezione] = useState<Selezione | null>(null)
@@ -40,32 +41,7 @@ export default function TurniPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Registro Turni</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMese(mesePiu(mese, -1))}
-            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-cielo-700 transition hover:bg-cielo-50"
-            title="Mese precedente"
-          >
-            ‹
-          </button>
-          <span className="min-w-40 text-center text-lg font-semibold text-cielo-800">{meseIt(mese)}</span>
-          <button
-            onClick={() => setMese(mesePiu(mese, 1))}
-            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-cielo-700 transition hover:bg-cielo-50"
-            title="Mese successivo"
-          >
-            ›
-          </button>
-          <button
-            onClick={() => setMese(meseOggi())}
-            className="ml-1 rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
-          >
-            Oggi
-          </button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Registro Turni — {meseIt(mese)}</h1>
 
       <p className="text-sm text-cielo-600">
         Clicca su un giorno per segnare turni e reperibilità (un giorno può avere anche più turni, come il

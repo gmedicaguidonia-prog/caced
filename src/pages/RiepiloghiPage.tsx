@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom'
 import { dbLocale, TIPI_TURNO } from '../lib/db'
 import type { MeseTurni, Postazione } from '../lib/db'
 import { useToast } from '../hooks/useToast'
-import { giorniNelMese, meseIt, meseOggi, mesePiu } from '../lib/formato'
+import { useMese } from '../hooks/useMese'
+import { giorniNelMese, meseIt } from '../lib/formato'
 
-/** Anteprima fedele del modello dell'ufficio + generazione del file excel. */
+/** Anteprima fedele del modello dell'ufficio + generazione di excel e PDF. */
 export default function RiepiloghiPage() {
   const toast = useToast()
-  const [mese, setMese] = useState(meseOggi())
+  const { mese } = useMese()
   const [postazioni, setPostazioni] = useState<Postazione[]>([])
   const [dati, setDati] = useState<Record<string, MeseTurni>>({})
   const [genero, setGenero] = useState<string | null>(null)
@@ -39,9 +40,9 @@ export default function RiepiloghiPage() {
     return d && (d.turni.length > 0 || d.reperibilita.length > 0)
   })
 
-  async function genera(p: Postazione) {
-    setGenero(p.id)
-    const { data, error } = await dbLocale.excel.genera(p.id, mese)
+  async function genera(p: Postazione, formato: 'xlsx' | 'pdf') {
+    setGenero(`${p.id}|${formato}`)
+    const { data, error } = await dbLocale.excel.genera(p.id, mese, formato)
     setGenero(null)
     if (error) {
       toast.errore(error.message)
@@ -54,28 +55,11 @@ export default function RiepiloghiPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Riepiloghi Excel</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMese(mesePiu(mese, -1))}
-            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-cielo-700 transition hover:bg-cielo-50"
-          >
-            ‹
-          </button>
-          <span className="min-w-40 text-center text-lg font-semibold text-cielo-800">{meseIt(mese)}</span>
-          <button
-            onClick={() => setMese(mesePiu(mese, 1))}
-            className="rounded-lg border border-cielo-300 px-3 py-1.5 text-cielo-700 transition hover:bg-cielo-50"
-          >
-            ›
-          </button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Riepilogo turni — {meseIt(mese)}</h1>
 
       <p className="text-sm text-cielo-600">
-        L'anteprima riproduce il modello che l'ufficio conosce (colonne B–H, X sui giorni, totali). Il
-        pulsante crea il file .xlsx identico, pronto da allegare alla mail.
+        L'anteprima riproduce il modello che l'ufficio conosce (colonne B–H, X sui giorni, totali). I
+        pulsanti creano il file da allegare alla mail, in Excel o in PDF.
       </p>
 
       {conDati.length === 0 ? (
@@ -98,8 +82,8 @@ export default function RiepiloghiPage() {
             postazione={p}
             mese={mese}
             dati={dati[p.id] ?? { turni: [], reperibilita: [] }}
-            inCorso={genero === p.id}
-            onGenera={() => void genera(p)}
+            inCorso={genero?.startsWith(p.id) ? (genero.split('|')[1] as 'xlsx' | 'pdf') : null}
+            onGenera={(formato) => void genera(p, formato)}
           />
         ))
       )}
@@ -117,8 +101,8 @@ function Anteprima({
   postazione: Postazione
   mese: string
   dati: MeseTurni
-  inCorso: boolean
-  onGenera: () => void
+  inCorso: 'xlsx' | 'pdf' | null
+  onGenera: (formato: 'xlsx' | 'pdf') => void
 }) {
   const giorni = giorniNelMese(mese)
   const perData = useMemo(() => {
@@ -146,14 +130,24 @@ function Anteprima({
             {meseIt(mese)} — {totOre} ore di servizio, {totRep} reperibilità
           </p>
         </div>
-        <button
-          onClick={onGenera}
-          disabled={inCorso || totOre + totRep === 0}
-          title={totOre + totRep === 0 ? 'Nessun turno segnato in questo mese' : 'Crea il file .xlsx da mandare'}
-          className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
-        >
-          {inCorso ? 'Creazione…' : '⬇ Genera file excel'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onGenera('xlsx')}
+            disabled={inCorso !== null || totOre + totRep === 0}
+            title={totOre + totRep === 0 ? 'Nessun turno segnato in questo mese' : 'Crea il file Excel da mandare'}
+            className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
+          >
+            {inCorso === 'xlsx' ? 'Creazione…' : '⬇ Excel'}
+          </button>
+          <button
+            onClick={() => onGenera('pdf')}
+            disabled={inCorso !== null || totOre + totRep === 0}
+            title={totOre + totRep === 0 ? 'Nessun turno segnato in questo mese' : 'Crea il PDF pronto da stampare'}
+            className="rounded-lg border border-cielo-400 bg-panna px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50 disabled:opacity-50"
+          >
+            {inCorso === 'pdf' ? 'Creazione…' : '⬇ PDF'}
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 overflow-x-auto">

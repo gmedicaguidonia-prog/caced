@@ -6,13 +6,15 @@ import Icona from './Icone'
 import type { NomeIcona } from './Icone'
 import { useAggiornamenti } from './GestoreAggiornamenti'
 import { TEMI } from '../lib/temi'
+import { useMese } from '../hooks/useMese'
+import { meseIt, mesePiu, meseOggi } from '../lib/formato'
 
 const LOGO = './logo.svg'
 
 const VOCI: { to: string; label: string; icona: NomeIcona }[] = [
   { to: '/', label: 'Home', icona: 'home' },
   { to: '/turni', label: 'Registro Turni', icona: 'turni' },
-  { to: '/riepiloghi', label: 'Riepiloghi Excel', icona: 'excel' },
+  { to: '/riepiloghi', label: 'Riepilogo turni', icona: 'excel' },
   { to: '/previsione', label: 'Previsione Compensi', icona: 'previsione' },
   { to: '/cedolini', label: 'Cedolini', icona: 'cedolini' },
   { to: '/tariffe', label: 'Tariffe e Impostazioni', icona: 'tariffe' },
@@ -22,6 +24,7 @@ export default function Layout() {
   const { utente, esci } = useAuth()
   const { tema, impostaTema, larghezzaMenu, impostaLarghezzaMenu } = usePreferenze()
   const { controlloManuale, controllaOra } = useAggiornamenti()
+  const { mese, impostaMese, vaiOggi, puoAvanzare } = useMese()
 
   // larghezza del menu: si trascina il bordo destro
   const [larghezza, setLarghezza] = useState(larghezzaMenu)
@@ -89,6 +92,35 @@ export default function Layout() {
             <Icona nome="utenti" />
             Utenti
           </NavLink>
+
+          {/* mese di lavoro: vale per registro, riepiloghi e previsioni */}
+          <div className="flex shrink-0 items-center gap-1 rounded-lg border border-cielo-200 bg-cielo-50 px-1 py-0.5">
+            <button
+              onClick={() => impostaMese(mesePiu(mese, -1))}
+              title="Mese precedente"
+              className="rounded px-2 py-1 text-cielo-700 transition hover:bg-cielo-100"
+            >
+              ‹
+            </button>
+            <span className="min-w-36 text-center text-sm font-semibold text-cielo-800">{meseIt(mese)}</span>
+            <button
+              onClick={() => impostaMese(mesePiu(mese, 1))}
+              disabled={!puoAvanzare}
+              title={puoAvanzare ? 'Mese successivo' : 'Oltre due mesi da oggi non si va'}
+              className="rounded px-2 py-1 text-cielo-700 transition hover:bg-cielo-100 disabled:cursor-not-allowed disabled:text-cielo-300"
+            >
+              ›
+            </button>
+            {mese !== meseOggi() && (
+              <button
+                onClick={vaiOggi}
+                title="Torna al mese corrente"
+                className="ml-0.5 rounded border border-cielo-300 bg-panna px-2 py-1 text-xs font-medium text-cielo-700 transition hover:bg-cielo-100"
+              >
+                Oggi
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-3 text-sm">

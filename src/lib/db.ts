@@ -88,6 +88,8 @@ export type Cedolino = {
   lordo: number | null
   netto: number | null
   valuta: string | null
+  /** true se l'utente ha già preso atto delle differenze ("va bene così") */
+  anomalie_risolte: boolean
   voci: VoceCedolino[]
   enpam: { cassa: string; imponibile: number; aliquota: number; importo: number }[]
   ritenuta: { imponibile: number; importo: number } | null
@@ -148,7 +150,11 @@ export type Riconciliazione = {
   atteso: RaccoltaMese
   righe: RigaRiconciliazione[]
   arretrati: VoceCedolino[]
+  /** differenze trovate (anche se già archiviate come «va bene così») */
   anomalie: number
+  /** differenze ancora da segnalare in giro per il programma */
+  anomalieAperte: number
+  anomalieRisolte: boolean
   prezzoBenzinaRicavato: number | null
   suggerimenti: SuggerimentiCedolino | null
 }
@@ -220,9 +226,11 @@ export type ApiCacca = {
     mesiDisponibili(): Promise<RispostaDb<string[]>>
   }
   excel: {
-    genera(postazioneId: string, mese: string): Promise<
-      RispostaDb<{ percorso: string; totaleOre: number; totaleRep: number } | null>
-    >
+    genera(
+      postazioneId: string,
+      mese: string,
+      formato: 'xlsx' | 'pdf',
+    ): Promise<RispostaDb<{ percorso: string; totaleOre: number; totaleRep: number } | null>>
   }
   cedolini: {
     list(): Promise<RispostaDb<Cedolino[]>>
@@ -236,12 +244,16 @@ export type ApiCacca = {
       nome?: string
       allineaNome?: boolean
     }): Promise<RispostaDb<{ id: string; nome: string; creata: boolean }>>
+    /** «Risolvi anomalie»: smette di segnalare le differenze di questo cedolino */
+    risolviAnomalie(id: string, risolte: boolean): Promise<RispostaDb<null>>
     apri(id: string): Promise<RispostaDb<null>>
     elimina(id: string): Promise<RispostaDb<null>>
   }
   benzina: {
     list(): Promise<RispostaDb<PrezzoBenzina[]>>
     imposta(mese: string, prezzo: number): Promise<RispostaDb<null>>
+    /** riempie i mesi con turni o cedolini che non hanno ancora un prezzo */
+    completa(): Promise<RispostaDb<{ mese: string; prezzo: number; esatto: boolean }[]>>
   }
   tariffe: {
     list(): Promise<RispostaDb<Tariffa[]>>
@@ -252,6 +264,30 @@ export type ApiCacca = {
     list(): Promise<RispostaDb<Incarico[]>>
     salva(r: Partial<Incarico>): Promise<RispostaDb<null>>
     elimina(id: string): Promise<RispostaDb<null>>
+  }
+  online: {
+    stato(): Promise<
+      RispostaDb<{
+        attivo: boolean
+        email?: string
+        sale?: string
+        ultimoInvio?: string | null
+        sbloccato: boolean
+        indirizzo: string
+      }>
+    >
+    /** Che cosa c'è già online per questo indirizzo (senza password). */
+    controlla(email: string): Promise<
+      RispostaDb<{ esiste: boolean; dispositivo?: string; byte?: number; aggiornatoIl?: string }>
+    >
+    attiva(r: {
+      email: string
+      password: string
+      modo: 'carica' | 'scarica'
+    }): Promise<RispostaDb<{ attivo: boolean; email?: string }>>
+    sblocca(password: string): Promise<RispostaDb<{ versione: number }>>
+    invia(): Promise<RispostaDb<{ versione: number | null }>>
+    disattiva(elimina: boolean): Promise<RispostaDb<null>>
   }
   datiApp: {
     info(): Promise<RispostaDb<{ cartella: string; dimensione: number }>>

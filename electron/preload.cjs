@@ -44,12 +44,14 @@ contextBridge.exposeInMainWorld('cacca', {
     importa: () => ipcRenderer.invoke('cedolini:importa'),
     riconcilia: (id) => ipcRenderer.invoke('cedolini:riconcilia', id),
     collegaSede: (r) => ipcRenderer.invoke('cedolini:collega-sede', r),
+    risolviAnomalie: (id, risolte) => ipcRenderer.invoke('cedolini:risolvi-anomalie', { id, risolte }),
     apri: (id) => ipcRenderer.invoke('cedolini:apri', id),
     elimina: (id) => ipcRenderer.invoke('cedolini:elimina', id),
   },
   benzina: {
     list: () => ipcRenderer.invoke('benzina:list'),
     imposta: (mese, prezzo) => ipcRenderer.invoke('benzina:imposta', { mese, prezzo }),
+    completa: () => ipcRenderer.invoke('benzina:completa'),
   },
   tariffe: {
     list: () => ipcRenderer.invoke('tariffe:list'),
@@ -60,6 +62,14 @@ contextBridge.exposeInMainWorld('cacca', {
     list: () => ipcRenderer.invoke('incarichi:list'),
     salva: (r) => ipcRenderer.invoke('incarichi:salva', r),
     elimina: (id) => ipcRenderer.invoke('incarichi:elimina', id),
+  },
+  online: {
+    stato: () => ipcRenderer.invoke('online:stato'),
+    controlla: (email) => ipcRenderer.invoke('online:controlla', email),
+    attiva: (r) => ipcRenderer.invoke('online:attiva', r),
+    sblocca: (password) => ipcRenderer.invoke('online:sblocca', { password }),
+    invia: () => ipcRenderer.invoke('online:invia'),
+    disattiva: (elimina) => ipcRenderer.invoke('online:disattiva', { elimina }),
   },
   datiApp: {
     info: () => ipcRenderer.invoke('dati:info'),

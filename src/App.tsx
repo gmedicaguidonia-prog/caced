@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { dbLocale } from './lib/db'
 import { PreferenzeProvider } from './hooks/usePreferenze'
+import { MeseProvider } from './hooks/useMese'
 import { ToastProvider } from './hooks/useToast'
 import Layout from './components/Layout'
 import GestoreAggiornamenti from './components/GestoreAggiornamenti'
@@ -72,19 +73,21 @@ function Contenuto() {
   if (chiediCollegamenti) return <PrimoAvvioPage onFine={() => setChiediCollegamenti(false)} />
 
   return (
-    <HashRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/turni" element={<TurniPage />} />
-          <Route path="/riepiloghi" element={<RiepiloghiPage />} />
-          <Route path="/previsione" element={<PrevisionePage />} />
-          <Route path="/cedolini" element={<CedoliniPage />} />
-          <Route path="/tariffe" element={<TariffePage />} />
-          <Route path="/utenti" element={<UtentiPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+    <MeseProvider>
+      <HashRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/turni" element={<TurniPage />} />
+            <Route path="/riepiloghi" element={<RiepiloghiPage />} />
+            <Route path="/previsione" element={<PrevisionePage />} />
+            <Route path="/cedolini" element={<CedoliniPage />} />
+            <Route path="/tariffe" element={<TariffePage />} />
+            <Route path="/utenti" element={<UtentiPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </HashRouter>
+    </MeseProvider>
   )
 }

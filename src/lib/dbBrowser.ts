@@ -216,6 +216,7 @@ export function creaApiBrowser(): ApiCacca {
       importa: () => err("L'importazione dei cedolini è disponibile solo dentro CACCA.exe"),
       riconcilia: () => err('Disponibile solo dentro CACCA.exe'),
       collegaSede: () => err<{ id: string; nome: string; creata: boolean }>('Disponibile solo dentro CACCA.exe'),
+      risolviAnomalie: () => err('Disponibile solo dentro CACCA.exe'),
       apri: () => err('Disponibile solo dentro CACCA.exe'),
       elimina: () => err('Disponibile solo dentro CACCA.exe'),
     },
@@ -229,6 +230,7 @@ export function creaApiBrowser(): ApiCacca {
         else benzina.push({ mese, prezzo, fonte: 'inserito a mano' })
         return ok(null)
       },
+      completa: () => ok([] as { mese: string; prezzo: number; esatto: boolean }[]),
     },
     tariffe: {
       list: () => ok(tariffe.slice()),
@@ -239,6 +241,14 @@ export function creaApiBrowser(): ApiCacca {
       list: () => ok([]),
       salva: () => err('Disponibile solo dentro CACCA.exe'),
       elimina: () => err('Disponibile solo dentro CACCA.exe'),
+    },
+    online: {
+      stato: () => ok({ attivo: false, sbloccato: false, indirizzo: '' }),
+      controlla: () => err<{ esiste: boolean }>('Disponibile solo dentro CACCA.exe'),
+      attiva: () => err<{ attivo: boolean }>('Disponibile solo dentro CACCA.exe'),
+      sblocca: () => err<{ versione: number }>('Disponibile solo dentro CACCA.exe'),
+      invia: () => err<{ versione: number | null }>('Disponibile solo dentro CACCA.exe'),
+      disattiva: () => err('Disponibile solo dentro CACCA.exe'),
     },
     datiApp: {
       info: () => ok({ cartella: '(anteprima nel browser: nessun archivio su disco)', dimensione: 0 }),
