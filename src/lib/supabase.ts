@@ -1,11 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Progetto Supabase "guardia-medica": le tabelle di CACCA hanno il prefisso
-// cacca_ e regole RLS per email, quindi la chiave pubblica qui sotto da sola
-// non apre nulla: serve il login Google di un indirizzo autorizzato.
-export const SUPABASE_URL = 'https://lrvkchqvjzynfzevpqaj.supabase.co'
+// Progetto Supabase "cacca" (account gmedicaguidonia, dedicato solo a questa
+// app): tabelle cacca_* con regole RLS per email, quindi la chiave pubblica
+// qui sotto da sola non apre nulla: serve il login Google di un indirizzo
+// autorizzato.
+export const SUPABASE_URL = 'https://ytcvswwsazqtjpuhvfku.supabase.co'
 const CHIAVE_PUBBLICA =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxydmtjaHF2anp5bmZ6ZXZwcWFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NDY5NjksImV4cCI6MjA5MzIyMjk2OX0.XZXyUt9UNepHvr4HBLgCkywQYsXwtmvwYCsRrlAMBv4'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl0Y3Zzd3dzYXpxdGpwdWh2Zmt1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MTY5NTcsImV4cCI6MjEwMTA5Mjk1N30.FCeHs5OD2JB3GzwJgnsITpoTgz4Kup3O74uOmrTpjOs'
 
 export const supabase = createClient(SUPABASE_URL, CHIAVE_PUBBLICA, {
   auth: {
