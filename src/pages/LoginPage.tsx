@@ -1,12 +1,31 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 
 const LOGO = './logo.svg'
+
+/** Se il rientro dal login porta un errore nell'indirizzo, lo si mostra. */
+function erroreDallUrl(): string | null {
+  for (const pezzo of [window.location.search, window.location.hash.replace(/^#\/?/, '')]) {
+    const p = new URLSearchParams(pezzo.startsWith('?') ? pezzo.slice(1) : pezzo)
+    const descrizione = p.get('error_description') || p.get('error')
+    if (descrizione) return decodeURIComponent(String(descrizione).replace(/\+/g, ' '))
+  }
+  return null
+}
 
 export default function LoginPage() {
   const { utente, accediConGoogle, esci } = useAuth()
   const [errore, setErrore] = useState<string | null>(null)
   const [attesa, setAttesa] = useState(false)
+
+  useEffect(() => {
+    const daUrl = erroreDallUrl()
+    if (daUrl) {
+      setErrore(`Il servizio di accesso ha risposto: «${daUrl}». Segnalalo a chi gestisce l'app.`)
+      // si ripulisce l'indirizzo, così un ricaricamento non ripropone l'errore
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   async function accedi() {
     setErrore(null)
