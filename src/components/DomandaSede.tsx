@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { dbLocale } from '../lib/db'
 import type { SuggerimentiCedolino } from '../lib/db'
 import { useToast } from '../hooks/useToast'
+import { useEscape } from '../hooks/useEscape'
 import { meseIt } from '../lib/formato'
 
 /**
@@ -19,6 +20,7 @@ export default function DomandaSede({
   onFine: (aggiornato: boolean) => void
 }) {
   const toast = useToast()
+  useEscape(() => onFine(false))
   const s = suggerimenti.sede
   const inc = suggerimenti.iscrizione
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { dbLocale, TIPI_TURNO } from '../lib/db'
 import type { MeseTurni, Postazione, TipoTurnoCodice, Turno } from '../lib/db'
 import { useToast } from '../hooks/useToast'
+import { useEscape } from '../hooks/useEscape'
 import { GIORNI_BREVI, giorniNelMese, giornoSettimana, meseIt, meseOggi, mesePiu } from '../lib/formato'
 
 const COLORE_TIPO: Record<TipoTurnoCodice, string> = {
@@ -199,6 +200,7 @@ function ModaleGiorno({
   onSalvato: () => void
 }) {
   const toast = useToast()
+  useEscape(onChiudi)
   const esistenti = dati.turni.filter((t) => t.data === selezione.data)
   const repEsistente = dati.reperibilita.find((r) => r.data === selezione.data) ?? null
 

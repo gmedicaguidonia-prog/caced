@@ -1681,7 +1681,15 @@ function creaFinestra() {
     if (livello >= 2) registra(`finestra [errore] ${messaggio} (${sorgente}:${riga})`)
     else if (/\[CACCA\]/.test(String(messaggio))) registra(`finestra ${messaggio}`)
   })
-  win.webContents.on('did-finish-load', () => registra('finestra: interfaccia caricata'))
+  win.webContents.on('did-finish-load', () => {
+    registra('finestra: interfaccia caricata')
+    // la finestra deve prendersi la tastiera: se un'altra finestra è passata
+    // davanti durante l'avvio, senza questo si digita "nel vuoto"
+    if (!win.isDestroyed()) {
+      win.show()
+      win.focus()
+    }
+  })
   win.webContents.on('render-process-gone', (_e, dettagli) =>
     registra(`finestra terminata: ${dettagli && dettagli.reason}`),
   )

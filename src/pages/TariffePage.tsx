@@ -3,6 +3,7 @@ import { dbLocale } from '../lib/db'
 import type { Incarico, Postazione, PrezzoBenzina, Tariffa } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
+import { useEscape } from '../hooks/useEscape'
 import { euro, meseIt, meseOggi } from '../lib/formato'
 
 const NOMI_TARIFFE: Record<string, string> = {
@@ -341,6 +342,7 @@ export default function TariffePage() {
 function Postazioni({ postazioni, onCambiato }: { postazioni: Postazione[]; onCambiato: () => Promise<void> }) {
   const toast = useToast()
   const [modifica, setModifica] = useState<Partial<Postazione> | null>(null)
+  useEscape(() => setModifica(null))
 
   async function salva() {
     if (!modifica) return

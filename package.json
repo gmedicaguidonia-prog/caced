@@ -1,7 +1,7 @@
 {
   "name": "cacca",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "CACCA — Calcolo Automatico Cedolini Continuità Assistenziale (app desktop locale)",
   "author": "CACCA",
   "type": "module",
