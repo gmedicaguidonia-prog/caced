@@ -1716,10 +1716,12 @@ function smoke() {
     rapporto.excel_ok = prova.totaleOre === 36 && prova.totaleRep === 2 && prova.nomeFoglio === 'GENNAIO 2026'
 
     // --- lettura cedolino (testo sintetico nel formato NoiPA)
+    // dati di prova INVENTATI: qui non deve comparire nulla di reale
+    // (lo script di rilascio controlla il pacchetto proprio su questo)
     const testoProva = [
-      'RATA: Gennaio 2026 ID CEDOLINO: 05752034',
-      'N° iscrizione: 20046535',
-      'Sede di servizio: GUIDONIA',
+      'RATA: Gennaio 2026 ID CEDOLINO: 00000001',
+      'N° iscrizione: 12345678',
+      'Sede di servizio: POSTAZIONE DI PROVA',
       'Coord. IBAN: IT00X0000000000000000000000 Valuta/Esigibilità: 27 Gennaio 2026',
       '11 COMP. CHILOMETRICO 193,44',
       '40 ONORARIO PROFESSIONALE 2.764,50',
@@ -1735,7 +1737,7 @@ function smoke() {
     rapporto.cedolino_rata = letto.rata
     rapporto.cedolino_ok =
       letto.rata === '2026-01' &&
-      letto.iscrizione === '20046535' &&
+      letto.iscrizione === '12345678' &&
       letto.voci.length === 5 &&
       letto.voci.find((v) => v.codice === '40')?.importo === 2764.5 &&
       letto.voci.find((v) => v.codice === '27')?.rif === '12/25' &&
