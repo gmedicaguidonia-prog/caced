@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('cacca', {
   },
   sistemazione: {
     stato: () => ipcRenderer.invoke('sistemazione:stato'),
+    scegliCartella: () => ipcRenderer.invoke('sistemazione:scegli-cartella'),
     esegui: (scelte) => ipcRenderer.invoke('sistemazione:esegui', scelte),
     rifiuta: () => ipcRenderer.invoke('sistemazione:rifiuta'),
   },

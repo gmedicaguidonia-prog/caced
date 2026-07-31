@@ -234,7 +234,10 @@ export type ApiCacca = {
   }
   sistemazione: {
     stato(): Promise<RispostaDb<{ serve: boolean; posizioneAttuale: string; destinazione: string }>>
+    /** Apre la scelta della cartella di installazione; null se annullata. */
+    scegliCartella(): Promise<RispostaDb<string | null>>
     esegui(scelte: {
+      destinazione: string
       collegamentoDesktop: boolean
       collegamentoMenu: boolean
     }): Promise<RispostaDb<{ destinazione: string }>>

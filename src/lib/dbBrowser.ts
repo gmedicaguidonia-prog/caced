@@ -245,6 +245,7 @@ export function creaApiBrowser(): ApiCacca {
     },
     sistemazione: {
       stato: () => ok({ serve: false, posizioneAttuale: '', destinazione: '' }),
+      scegliCartella: () => err<string | null>('Disponibile solo dentro CACCA.exe'),
       esegui: () => err('Disponibile solo dentro CACCA.exe'),
       rifiuta: () => ok(null),
     },

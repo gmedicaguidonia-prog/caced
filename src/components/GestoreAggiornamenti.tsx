@@ -33,14 +33,16 @@ const STATO_INIZIALE: StatoAggiornamento = {
 }
 
 /**
- * All'avvio controlla e, se serve, installa l'aggiornamento PRIMA di ogni altra
- * cosa. Dopo l'avvio, se ne esce uno nuovo, mostra il banner arancione.
+ * All'avvio controlla se c'è una nuova versione e, se c'è, CHIEDE il permesso
+ * di installarla (niente installazioni a sorpresa). Dopo l'avvio, se ne esce
+ * una nuova mentre il programma è aperto, compare il banner arancione.
  */
 export default function GestoreAggiornamenti({ children }: { children: ReactNode }) {
   const [stato, setStato] = useState<StatoAggiornamento>(STATO_INIZIALE)
   const [avvioConcluso, setAvvioConcluso] = useState(false)
   const [rimandato, setRimandato] = useState(false)
   const [erroreAvvio, setErroreAvvio] = useState<string | null>(null)
+  const [proposta, setProposta] = useState<{ versione: string; note: string; avvisoTentativi: boolean } | null>(null)
   const [controlloManuale, setControlloManuale] = useState<'fermo' | 'incorso' | 'aggiornato'>('fermo')
 
   /** Controllo su richiesta (dal numero di versione nell'intestazione). */
@@ -56,14 +58,14 @@ export default function GestoreAggiornamenti({ children }: { children: ReactNode
   // resta in ascolto dei cambi di stato (controllo, avanzamento, errori)
   useEffect(() => dbLocale.aggiornamenti.osserva(setStato), [])
 
-  // sequenza di avvio: controlla → se c'è, installa subito.
+  // sequenza di avvio: controlla → se c'è qualcosa, si chiede all'utente.
   // Qualunque cosa vada storta, si entra comunque nel programma.
   useEffect(() => {
     let vivo = true
-    let installazioneAvviata = false
+    let propostaMostrata = false
 
     const salvagente = window.setTimeout(() => {
-      if (vivo && !installazioneAvviata) setAvvioConcluso(true)
+      if (vivo && !propostaMostrata) setAvvioConcluso(true)
     }, ATTESA_MASSIMA_CONTROLLO + 5000)
 
     async function avvio() {
@@ -79,31 +81,21 @@ export default function GestoreAggiornamenti({ children }: { children: ReactNode
         if (!vivo) return
 
         const trovato =
-          (esito as { data?: { versione?: string; autoInstalla?: boolean } | null } | null)?.data ?? null
+          (esito as { data?: { versione?: string; note?: string; autoInstalla?: boolean } | null } | null)?.data ??
+          null
         if (!trovato?.versione) return
 
-        if (trovato.autoInstalla === false) {
-          setErroreAvvio(
-            `L'aggiornamento alla versione ${trovato.versione} non è andato a buon fine nei tentativi precedenti. ` +
-              'Puoi riprovare dal pulsante "Aggiorna subito".',
-          )
-          return
-        }
-
-        installazioneAvviata = true
-        const inst = await dbLocale.aggiornamenti.installa().catch((e: unknown) => ({
-          data: null,
-          error: { message: String(e) },
-        }))
-        if (!vivo) return
-        if (inst?.error) {
-          installazioneAvviata = false
-          setErroreAvvio(inst.error.message)
-        }
+        // nuova versione trovata: si chiede il permesso di installarla
+        propostaMostrata = true
+        setProposta({
+          versione: trovato.versione,
+          note: String(trovato.note ?? '').trim(),
+          avvisoTentativi: trovato.autoInstalla === false,
+        })
       } catch (e) {
         if (vivo) setErroreAvvio(String(e))
       } finally {
-        if (vivo && !installazioneAvviata) setAvvioConcluso(true)
+        if (vivo && !propostaMostrata) setAvvioConcluso(true)
       }
     }
 
@@ -114,13 +106,72 @@ export default function GestoreAggiornamenti({ children }: { children: ReactNode
     }
   }, [])
 
+  async function installaProposta() {
+    setProposta(null)
+    const inst = await dbLocale.aggiornamenti.installa().catch((e: unknown) => ({
+      data: null,
+      error: { message: String(e) },
+    }))
+    // se va a buon fine l'app si chiude e riparte da sola
+    if (inst?.error) {
+      setErroreAvvio(inst.error.message)
+      setAvvioConcluso(true)
+    }
+  }
+
+  function rimandaProposta() {
+    setProposta(null)
+    setRimandato(true) // niente banner subito dopo: l'utente ha già risposto
+    setAvvioConcluso(true)
+  }
+
   const inCorso = stato.fase === 'download' || stato.fase === 'installazione'
 
   // --- schermata di avvio: nulla è accessibile finché non si conclude ---
   if (!avvioConcluso) {
-    return inCorso ? (
-      <PannelloAggiornamento stato={stato} />
-    ) : (
+    if (inCorso) return <PannelloAggiornamento stato={stato} />
+    if (proposta) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-cielo-100 p-6">
+          <div className="w-full max-w-md rounded-2xl border border-cielo-200 bg-panna p-8 text-center shadow-xl">
+            <img src={LOGO} alt="CACCA" className="mx-auto h-24 w-24" />
+            <h2 className="mt-4 text-xl font-bold tracking-tight text-cielo-800">
+              Nuova versione disponibile: {proposta.versione}
+            </h2>
+            {proposta.note && (
+              <p className="mt-2 whitespace-pre-line rounded-xl bg-cielo-50 p-3 text-left text-sm leading-relaxed text-cielo-700">
+                {proposta.note}
+              </p>
+            )}
+            {proposta.avvisoTentativi && (
+              <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+                Nei tentativi precedenti questa installazione non è andata a buon fine: puoi riprovare
+                o entrare nel programma con la versione attuale.
+              </p>
+            )}
+            <p className="mt-3 text-sm text-cielo-600">Vuoi scaricarla e installarla adesso?</p>
+            <div className="mt-5 flex justify-center gap-3">
+              <button
+                onClick={() => void installaProposta()}
+                className="rounded-lg bg-cielo-500 px-6 py-2.5 font-medium text-white transition hover:bg-cielo-600"
+              >
+                Sì, installa
+              </button>
+              <button
+                onClick={rimandaProposta}
+                className="rounded-lg border border-cielo-300 px-5 py-2.5 text-cielo-700 transition hover:bg-cielo-50"
+              >
+                Più tardi
+              </button>
+            </div>
+            <p className="mt-3 text-[11px] text-cielo-400">
+              L'installazione dura pochi secondi e il programma si riavvia da solo. I dati non vengono toccati.
+            </p>
+          </div>
+        </div>
+      )
+    }
+    return (
       <div className="flex h-screen flex-col items-center justify-center bg-cielo-100 p-6 text-center">
         <img src={LOGO} alt="CACCA" className="h-28 w-28" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight text-cielo-800">CACCA</h1>

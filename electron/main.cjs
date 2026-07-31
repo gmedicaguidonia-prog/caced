@@ -1161,28 +1161,57 @@ ipcMain.handle('sistemazione:rifiuta', () =>
   }),
 )
 
-function eseguiSistemazione({ collegamentoDesktop, collegamentoMenu }) {
+/** Se la cartella scelta non si chiama già CACCA, il programma vi crea dentro
+ *  la propria cartella (es. Desktop → Desktop\CACCA). */
+function proponiDestinazione(cartella) {
+  return path.basename(cartella).toLowerCase() === 'cacca' ? cartella : path.join(cartella, 'CACCA')
+}
+
+// L'utente sfoglia e sceglie dove installare (es. Desktop, D:\, una chiavetta…).
+ipcMain.handle('sistemazione:scegli-cartella', async () => {
+  try {
+    const scelta = await dialog.showOpenDialog({
+      title: 'Scegli dove installare CACCA',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: fs.existsSync('D:\\') ? 'D:\\' : app.getPath('desktop'),
+    })
+    if (scelta.canceled || !scelta.filePaths[0]) return { data: null, error: null }
+    return { data: proponiDestinazione(scelta.filePaths[0]), error: null }
+  } catch (e) {
+    return { data: null, error: { message: String((e && e.message) || e) } }
+  }
+})
+
+function eseguiSistemazione({ destinazione, collegamentoDesktop, collegamentoMenu }) {
   const origine = process.env.PORTABLE_EXECUTABLE_FILE
   if (!origine) throw new Error('Operazione disponibile solo nella versione portable.')
-  const destinazioneCartella = cartellaCasa()
+  const destinazioneCartella = pulisci(destinazione) || cartellaCasa()
+  if (path.resolve(path.dirname(origine)) === path.resolve(destinazioneCartella)) {
+    throw new Error('Il programma è già in quella cartella.')
+  }
   const destinazioneExe = path.join(destinazioneCartella, 'CACCA.exe')
 
   fs.mkdirSync(destinazioneCartella, { recursive: true })
   fs.copyFileSync(origine, destinazioneExe)
-  registra(`programma copiato in ${destinazioneExe}`)
+  registra(`programma installato in ${destinazioneExe}`)
+
+  // l'installazione è fatta: la nuova copia non deve riproporla, e la domanda
+  // sui collegamenti è già stata fatta qui
+  db.prepare("insert or replace into app_meta (k, v) values ('no_sistemazione', 'si')").run()
+  db.prepare("insert or replace into app_meta (k, v) values ('collegamenti_chiesti', 'si')").run()
 
   // i dati eventualmente già inseriti viaggiano con il programma
   const datiOrigine = path.join(path.dirname(origine), 'dati')
   const datiDestinazione = path.join(destinazioneCartella, 'dati')
-  if (fs.existsSync(datiOrigine) && !fs.existsSync(datiDestinazione)) {
-    try {
-      if (db) db.close()
-      db = null
+  try {
+    if (db) db.close()
+    db = null
+    if (fs.existsSync(datiOrigine) && !fs.existsSync(datiDestinazione)) {
       fs.cpSync(datiOrigine, datiDestinazione, { recursive: true })
       registra('dati esistenti trasferiti nella nuova posizione')
-    } catch (e) {
-      registra(`trasferimento dati non riuscito: ${String((e && e.message) || e)}`)
     }
+  } catch (e) {
+    registra(`trasferimento dati non riuscito: ${String((e && e.message) || e)}`)
   }
 
   const p = percorsiCollegamenti()
