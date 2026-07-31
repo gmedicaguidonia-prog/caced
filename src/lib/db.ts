@@ -31,6 +31,11 @@ export type Postazione = {
   suffisso_foglio: string
   ordine: number
   attiva: boolean
+  /** com'è scritta la sede nei cedolini di questa postazione (imparata una volta) */
+  sede_cedolino: string | null
+  /** quanti turni/reperibilità la usano (per capire se è eliminabile) */
+  turni: number
+  reperibilita: number
 }
 
 export type TipoTurnoCodice = 'nott12' | 'pref_g10' | 'pref22' | 'fest12' | 'fest24'
@@ -125,6 +130,17 @@ export type RigaRiconciliazione = {
   testo: string | null
 }
 
+/** Domande che nascono dal cedolino: sede sconosciuta, incarico nuovo. */
+export type SuggerimentiCedolino = {
+  sede: {
+    sede: string
+    candidato: { id: string; nome: string; somiglianza: number } | null
+    postazioni: { id: string; nome: string }[]
+    nomeProposto: string
+  } | null
+  iscrizione: { numero: string; dal: string; sede: string | null } | null
+}
+
 export type Riconciliazione = {
   cedolino: Cedolino
   meseLavoro: string
@@ -134,6 +150,7 @@ export type Riconciliazione = {
   arretrati: VoceCedolino[]
   anomalie: number
   prezzoBenzinaRicavato: number | null
+  suggerimenti: SuggerimentiCedolino | null
 }
 
 export type RiepilogoAnno = {
@@ -183,7 +200,8 @@ export type ApiCacca = {
   }
   postazioni: {
     list(): Promise<RispostaDb<Postazione[]>>
-    salva(r: Partial<Postazione>): Promise<RispostaDb<null>>
+    salva(r: Partial<Postazione>): Promise<RispostaDb<{ id: string }>>
+    elimina(id: string): Promise<RispostaDb<null>>
   }
   turni: {
     mese(postazioneId: string, mese: string): Promise<RispostaDb<MeseTurni>>
@@ -210,6 +228,14 @@ export type ApiCacca = {
     list(): Promise<RispostaDb<Cedolino[]>>
     importa(): Promise<RispostaDb<Riconciliazione | null>>
     riconcilia(id: string): Promise<RispostaDb<Riconciliazione>>
+    /** Risposta alla domanda «questa sede a quale postazione corrisponde?» */
+    collegaSede(r: {
+      sede: string
+      postazioneId?: string
+      creaNuova?: boolean
+      nome?: string
+      allineaNome?: boolean
+    }): Promise<RispostaDb<{ id: string; nome: string; creata: boolean }>>
     apri(id: string): Promise<RispostaDb<null>>
     elimina(id: string): Promise<RispostaDb<null>>
   }

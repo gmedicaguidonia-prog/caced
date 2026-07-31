@@ -304,23 +304,10 @@ export default function TariffePage() {
       </section>
 
       {/* ---- postazioni ---- */}
-      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
-        <h2 className="text-lg font-semibold text-cielo-800">Postazioni</h2>
-        <ul className="mt-2 space-y-1 text-sm text-cielo-800">
-          {postazioni.map((p) => (
-            <li key={p.id} className="flex items-center justify-between rounded-lg border border-cielo-200 bg-white px-3 py-2">
-              <span>
-                <b>{p.nome}</b>{' '}
-                <span className="text-xs text-cielo-500">(excel: «{p.nome_excel}»)</span>
-              </span>
-              {!p.attiva && <span className="text-xs text-cielo-400">disattivata</span>}
-            </li>
-          ))}
-        </ul>
-      </section>
+      <Postazioni postazioni={postazioni} onCambiato={carica} />
 
       {/* ---- dati ---- */}
-      <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+      <section id="dati" className="rounded-2xl border border-cielo-200 bg-panna p-5">
         <h2 className="text-lg font-semibold text-cielo-800">I tuoi dati</h2>
         <p className="mt-1 text-sm text-cielo-600">
           Archivio: <b className="break-all">{cartella}</b> — con copia di sicurezza automatica
@@ -347,5 +334,175 @@ export default function TariffePage() {
         </div>
       </section>
     </div>
+  )
+}
+
+/** Elenco postazioni con aggiunta, modifica e cancellazione (protetta). */
+function Postazioni({ postazioni, onCambiato }: { postazioni: Postazione[]; onCambiato: () => Promise<void> }) {
+  const toast = useToast()
+  const [modifica, setModifica] = useState<Partial<Postazione> | null>(null)
+
+  async function salva() {
+    if (!modifica) return
+    const { error } = await dbLocale.postazioni.salva(modifica)
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    toast.ok(modifica.id ? 'Postazione aggiornata.' : 'Postazione aggiunta.')
+    setModifica(null)
+    await onCambiato()
+  }
+
+  async function elimina(p: Postazione) {
+    if (!window.confirm(`Eliminare definitivamente la postazione «${p.nome}»?`)) return
+    const { error } = await dbLocale.postazioni.elimina(p.id)
+    if (error) {
+      // il motore spiega perché non si può (turni collegati): si mostra com'è
+      toast.errore(error.message)
+      return
+    }
+    toast.ok('Postazione eliminata.')
+    await onCambiato()
+  }
+
+  return (
+    <section className="rounded-2xl border border-cielo-200 bg-panna p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-cielo-800">Postazioni</h2>
+        <button
+          onClick={() => setModifica({ nome: '', nome_excel: '', suffisso_foglio: '', attiva: true })}
+          className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600"
+        >
+          + Aggiungi postazione
+        </button>
+      </div>
+      <p className="mt-1 text-sm text-cielo-600">
+        Il «nome per l'excel» è l'intestazione che l'ufficio si aspetta: RIEPILOGO ORE C.A. POSTAZIONE DI …
+      </p>
+
+      {postazioni.length === 0 && (
+        <p className="mt-3 rounded-xl bg-cielo-50 px-4 py-6 text-center text-sm text-cielo-600">
+          Nessuna postazione. Aggiungila qui, oppure importa un cedolino: CACCA ti proporrà di crearla con i
+          dati letti dal PDF.
+        </p>
+      )}
+
+      <ul className="mt-3 space-y-1.5 text-sm">
+        {postazioni.map((p) => (
+          <li
+            key={p.id}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-cielo-200 bg-white px-3 py-2"
+          >
+            <span className="min-w-0 flex-1">
+              <b className={p.attiva ? 'text-cielo-800' : 'text-cielo-400'}>{p.nome}</b>
+              {!p.attiva && <span className="ml-1.5 text-xs text-cielo-400">(disattivata)</span>}
+              <span className="block text-xs text-cielo-500">
+                excel: «{p.nome_excel}»
+                {p.suffisso_foglio ? ` · foglio con suffisso «${p.suffisso_foglio}»` : ''}
+                {p.sede_cedolino ? ` · sede sul cedolino: ${p.sede_cedolino}` : ' · sede sul cedolino non ancora collegata'}
+              </span>
+            </span>
+            <span className="shrink-0 text-xs text-cielo-500">
+              {p.turni} turni · {p.reperibilita} rep.
+            </span>
+            <button onClick={() => setModifica(p)} className="shrink-0 text-xs font-medium text-cielo-600 hover:underline">
+              modifica
+            </button>
+            <button
+              onClick={() => void elimina(p)}
+              disabled={p.turni + p.reperibilita > 0}
+              title={
+                p.turni + p.reperibilita > 0
+                  ? 'Ha dei turni collegati: non si può eliminare (puoi disattivarla)'
+                  : 'Elimina la postazione'
+              }
+              className="shrink-0 text-xs text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-cielo-300 disabled:no-underline"
+            >
+              elimina
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {modifica && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-velo p-4" onClick={() => setModifica(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-cielo-200 bg-panna p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-cielo-800">
+              {modifica.id ? 'Modifica postazione' : 'Nuova postazione'}
+            </h3>
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-cielo-700">Nome (come lo chiami tu) *</span>
+                <input
+                  autoFocus
+                  value={modifica.nome ?? ''}
+                  onChange={(e) => setModifica({ ...modifica, nome: e.target.value })}
+                  placeholder="es. Palombara Notte"
+                  className={`${inputCls} w-full`}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-cielo-700">Nome per l'excel dell'ufficio *</span>
+                <input
+                  value={modifica.nome_excel ?? ''}
+                  onChange={(e) => setModifica({ ...modifica, nome_excel: e.target.value })}
+                  placeholder="es. PALOMBARA NOTTE"
+                  className={`${inputCls} w-full`}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-cielo-700">
+                  Suffisso del foglio (facoltativo)
+                </span>
+                <input
+                  value={modifica.suffisso_foglio ?? ''}
+                  onChange={(e) => setModifica({ ...modifica, suffisso_foglio: e.target.value })}
+                  placeholder="es.  PALOMBARA → foglio «MARZO 2026 PALOMBARA»"
+                  className={`${inputCls} w-full`}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-cielo-700">
+                  Sede sul cedolino (facoltativo, si impara da sola)
+                </span>
+                <input
+                  value={modifica.sede_cedolino ?? ''}
+                  onChange={(e) => setModifica({ ...modifica, sede_cedolino: e.target.value })}
+                  placeholder="es. PALOMBARA (PPI)"
+                  className={`${inputCls} w-full`}
+                />
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-cielo-800">
+                <input
+                  type="checkbox"
+                  checked={modifica.attiva !== false}
+                  onChange={(e) => setModifica({ ...modifica, attiva: e.target.checked })}
+                />
+                Attiva (compare nei calendari e nei riepiloghi)
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setModifica(null)}
+                className="rounded-lg border border-cielo-300 px-4 py-2 text-sm text-cielo-700 transition hover:bg-cielo-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={() => void salva()}
+                disabled={!modifica.nome?.trim() || !modifica.nome_excel?.trim()}
+                className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
+              >
+                Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   )
 }

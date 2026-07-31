@@ -374,6 +374,104 @@ function leggiCedolino(testo) {
   return esito
 }
 
+// ---------- confronto nomi (sede del cedolino ↔ postazioni inserite) ----------
+// Il cedolino scrive la sede a modo suo ("PALOMBARA (PPI)"), l'utente la
+// chiama come gli pare ("Palombara Notte"): qui si misura quanto si somigliano
+// per poter CHIEDERE se sono la stessa cosa (non si decide mai da soli).
+
+/** MAIUSCOLO, senza accenti né punteggiatura, spazi singoli. */
+function normalizzaTesto(s) {
+  return String(s || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+}
+
+/** Somiglianza fra due parole (coefficiente di Dice sulle coppie di lettere). */
+function somiglianzaParole(a, b) {
+  if (a === b) return 1
+  if (a.length < 2 || b.length < 2) return 0
+  const coppie = (s) => {
+    const out = []
+    for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2))
+    return out
+  }
+  const ca = coppie(a)
+  const cb = coppie(b)
+  const restanti = cb.slice()
+  let comuni = 0
+  for (const c of ca) {
+    const i = restanti.indexOf(c)
+    if (i >= 0) {
+      comuni++
+      restanti.splice(i, 1)
+    }
+  }
+  return (2 * comuni) / (ca.length + cb.length)
+}
+
+/**
+ * Somiglianza fra due nomi (0 = niente a che vedere, 1 = identici).
+ * Confronta parola per parola: "PALOMBARA NOT" e "Palombara Notte" ≈ 0,95
+ * perché NOT è l'inizio di NOTTE.
+ */
+function somiglianzaNomi(a, b) {
+  const x = normalizzaTesto(a)
+  const y = normalizzaTesto(b)
+  if (!x || !y) return 0
+  if (x === y) return 1
+  const ta = x.split(' ')
+  const tb = y.split(' ')
+  const [corti, lunghi] = ta.length <= tb.length ? [ta, tb] : [tb, ta]
+  let somma = 0
+  for (const t of corti) {
+    let migliore = 0
+    for (const u of lunghi) {
+      let s
+      if (t === u) s = 1
+      else if ((t.length >= 3 && u.startsWith(t)) || (u.length >= 3 && t.startsWith(u))) s = 0.9
+      else s = somiglianzaParole(t, u)
+      if (s > migliore) migliore = s
+    }
+    somma += migliore
+  }
+  // conta anche quante parole "avanzano" nel nome più lungo
+  const copertura = corti.length / lunghi.length
+  return Math.round((somma / corti.length) * (0.7 + 0.3 * copertura) * 1000) / 1000
+}
+
+/**
+ * Cerca fra le postazioni quella che somiglia di più alla sede del cedolino.
+ * postazioni: [{ id, nome, nome_excel, sede_cedolino }]
+ * Ritorna { esatta, postazione, somiglianza } — esatta = collegamento già
+ * confermato in passato (nessuna domanda da fare).
+ */
+function cercaPostazionePerSede(sede, postazioni) {
+  const s = normalizzaTesto(sede)
+  if (!s) return { esatta: false, postazione: null, somiglianza: 0 }
+  for (const p of postazioni || []) {
+    if (p.sede_cedolino && normalizzaTesto(p.sede_cedolino) === s) {
+      return { esatta: true, postazione: p, somiglianza: 1 }
+    }
+  }
+  let migliore = null
+  let punteggio = 0
+  for (const p of postazioni || []) {
+    const q = Math.max(
+      somiglianzaNomi(sede, p.nome),
+      somiglianzaNomi(sede, p.nome_excel),
+      p.sede_cedolino ? somiglianzaNomi(sede, p.sede_cedolino) : 0,
+    )
+    if (q > punteggio) {
+      punteggio = q
+      migliore = p
+    }
+  }
+  return { esatta: false, postazione: punteggio >= 0.4 ? migliore : null, somiglianza: punteggio }
+}
+
 // ---------- riconciliazione cedolino ↔ atteso ----------
 /**
  * Confronta un cedolino letto (rata) con il calcolo atteso del mese precedente.
@@ -461,6 +559,9 @@ return {
   dataValuta,
   leggiCedolino,
   riconcilia,
+  normalizzaTesto,
+  somiglianzaNomi,
+  cercaPostazionePerSede,
 }
 
 })

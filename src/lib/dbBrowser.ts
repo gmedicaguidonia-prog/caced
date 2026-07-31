@@ -34,8 +34,8 @@ export function creaApiBrowser(): ApiCacca {
   const preferenze: Record<string, string> = {}
 
   const postazioni: Postazione[] = [
-    { id: 'p1', nome: 'Guidonia / Palombara Giorno', nome_excel: 'GUIDONIA/PALOMBARA GIORNO', suffisso_foglio: '', ordine: 1, attiva: true },
-    { id: 'p2', nome: 'Palombara Notte', nome_excel: 'PALOMBARA NOTTE', suffisso_foglio: ' PALOMBARA', ordine: 2, attiva: true },
+    { id: 'p1', nome: 'Guidonia / Palombara Giorno', nome_excel: 'GUIDONIA/PALOMBARA GIORNO', suffisso_foglio: '', ordine: 1, attiva: true, sede_cedolino: null, turni: 2, reperibilita: 1 },
+    { id: 'p2', nome: 'Palombara Notte', nome_excel: 'PALOMBARA NOTTE', suffisso_foglio: ' PALOMBARA', ordine: 2, attiva: true, sede_cedolino: null, turni: 2, reperibilita: 0 },
   ]
 
   const tariffe: Tariffa[] = [
@@ -159,7 +159,8 @@ export function creaApiBrowser(): ApiCacca {
     },
     postazioni: {
       list: () => ok(postazioni.slice()),
-      salva: () => err('Disponibile solo dentro CACCA.exe'),
+      salva: () => err<{ id: string }>('Disponibile solo dentro CACCA.exe'),
+      elimina: () => err('Disponibile solo dentro CACCA.exe'),
     },
     turni: {
       mese: (postazioneId, mese) => ok(turniMese(postazioneId, mese)),
@@ -214,6 +215,7 @@ export function creaApiBrowser(): ApiCacca {
       list: () => ok(cedolini.slice()),
       importa: () => err("L'importazione dei cedolini è disponibile solo dentro CACCA.exe"),
       riconcilia: () => err('Disponibile solo dentro CACCA.exe'),
+      collegaSede: () => err<{ id: string; nome: string; creata: boolean }>('Disponibile solo dentro CACCA.exe'),
       apri: () => err('Disponibile solo dentro CACCA.exe'),
       elimina: () => err('Disponibile solo dentro CACCA.exe'),
     },

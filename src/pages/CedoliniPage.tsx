@@ -4,6 +4,7 @@ import type { Cedolino, Riconciliazione } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { euro, dataIt, meseIt } from '../lib/formato'
+import DomandaSede from '../components/DomandaSede'
 
 export default function CedoliniPage() {
   const { utente } = useAuth()
@@ -12,6 +13,10 @@ export default function CedoliniPage() {
   const [aperto, setAperto] = useState<string | null>(null)
   const [dettagli, setDettagli] = useState<Record<string, Riconciliazione>>({})
   const [importo, setImporto] = useState(false)
+  // domanda in sospeso su sede/incarico ricavati da un cedolino
+  const [domanda, setDomanda] = useState<{ id: string; rata: string; dati: Riconciliazione['suggerimenti'] } | null>(
+    null,
+  )
 
   const carica = useCallback(async () => {
     const { data } = await dbLocale.cedolini.list()
@@ -22,20 +27,25 @@ export default function CedoliniPage() {
     void carica()
   }, [carica])
 
+  async function ricarica(id: string) {
+    const { data, error } = await dbLocale.cedolini.riconcilia(id)
+    if (error) {
+      toast.errore(error.message)
+      return null
+    }
+    if (data) setDettagli((d) => ({ ...d, [id]: data }))
+    return data
+  }
+
   async function apri(id: string) {
     if (aperto === id) {
       setAperto(null)
       return
     }
     setAperto(id)
-    if (!dettagli[id]) {
-      const { data, error } = await dbLocale.cedolini.riconcilia(id)
-      if (error) {
-        toast.errore(error.message)
-        return
-      }
-      if (data) setDettagli((d) => ({ ...d, [id]: data }))
-    }
+    const dati = dettagli[id] ?? (await ricarica(id))
+    // se restano domande in sospeso (sede sconosciuta, incarico nuovo) le si ripropone
+    if (dati?.suggerimenti) setDomanda({ id, rata: dati.cedolino.rata, dati: dati.suggerimenti })
   }
 
   async function importa() {
@@ -50,6 +60,10 @@ export default function CedoliniPage() {
     await carica()
     setDettagli((d) => ({ ...d, [data.cedolino.id]: data }))
     setAperto(data.cedolino.id)
+    // prima di tutto: sede e incarico letti dal PDF vanno confermati
+    if (data.suggerimenti) {
+      setDomanda({ id: data.cedolino.id, rata: data.cedolino.rata, dati: data.suggerimenti })
+    }
     if (data.anomalie > 0) {
       toast.avviso(
         `Cedolino ${meseIt(data.cedolino.rata)} importato: ${data.anomalie} ${data.anomalie === 1 ? 'anomalia trovata' : 'anomalie trovate'}! Guarda il confronto qui sotto.`,
@@ -72,6 +86,18 @@ export default function CedoliniPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
+      {domanda?.dati && (
+        <DomandaSede
+          suggerimenti={domanda.dati}
+          rata={domanda.rata}
+          onFine={(aggiornato) => {
+            const id = domanda.id
+            setDomanda(null)
+            if (aggiornato) void ricarica(id)
+          }}
+        />
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Cedolini</h1>
         <button
@@ -132,6 +158,17 @@ export default function CedoliniPage() {
                         {det.atteso.totale.reperibilita} reperibilità
                         {det.atteso.totale.oreSuperfestive > 0 && `, ★ ${det.atteso.totale.oreSuperfestive}h superfestive`}
                         ).
+                      </p>
+                      <p className="mt-1 text-xs text-cielo-500">
+                        Letti dal PDF: sede <b>{c.sede ?? '—'}</b> · iscrizione <b>{c.iscrizione ?? '—'}</b>
+                        {det.suggerimenti && (
+                          <button
+                            onClick={() => setDomanda({ id: c.id, rata: c.rata, dati: det.suggerimenti })}
+                            className="ml-2 font-medium text-cielo-600 underline"
+                          >
+                            da confermare
+                          </button>
+                        )}
                       </p>
                       <table className="mt-3 w-full text-sm">
                         <thead>

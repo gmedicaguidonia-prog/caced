@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { dbLocale, TIPI_TURNO } from '../lib/db'
 import type { MeseTurni, Postazione } from '../lib/db'
 import { useToast } from '../hooks/useToast'
@@ -31,6 +32,12 @@ export default function RiepiloghiPage() {
       vivo = false
     }
   }, [mese])
+
+  // niente foglio per le postazioni senza nulla da dichiarare in questo mese
+  const conDati = postazioni.filter((p) => {
+    const d = dati[p.id]
+    return d && (d.turni.length > 0 || d.reperibilita.length > 0)
+  })
 
   async function genera(p: Postazione) {
     setGenero(p.id)
@@ -71,16 +78,31 @@ export default function RiepiloghiPage() {
         pulsante crea il file .xlsx identico, pronto da allegare alla mail.
       </p>
 
-      {postazioni.map((p) => (
-        <Anteprima
-          key={p.id}
-          postazione={p}
-          mese={mese}
-          dati={dati[p.id] ?? { turni: [], reperibilita: [] }}
-          inCorso={genero === p.id}
-          onGenera={() => void genera(p)}
-        />
-      ))}
+      {conDati.length === 0 ? (
+        <div className="rounded-2xl border border-cielo-200 bg-panna p-10 text-center">
+          <p className="text-lg font-semibold text-cielo-800">Nessun turno inserito in {meseIt(mese)}</p>
+          <p className="mt-2 text-sm text-cielo-600">
+            Non c'è niente da mandare all'ufficio per questo mese. I fogli compaiono quando segni i turni.
+          </p>
+          <Link
+            to="/turni"
+            className="mt-4 inline-block rounded-lg bg-cielo-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cielo-600"
+          >
+            Vai al Registro Turni
+          </Link>
+        </div>
+      ) : (
+        conDati.map((p) => (
+          <Anteprima
+            key={p.id}
+            postazione={p}
+            mese={mese}
+            dati={dati[p.id] ?? { turni: [], reperibilita: [] }}
+            inCorso={genero === p.id}
+            onGenera={() => void genera(p)}
+          />
+        ))
+      )}
     </div>
   )
 }

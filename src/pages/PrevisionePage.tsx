@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
 import type { CalcoloMese, RaccoltaMese } from '../lib/db'
 import { euro, dataIt, meseIt, meseOggi, mesePiu } from '../lib/formato'
@@ -40,7 +41,22 @@ export default function PrevisionePage() {
         </div>
       </div>
 
-      {r && (
+      {r && r.totale.ore === 0 && r.totale.reperibilita === 0 && (
+        <div className="rounded-2xl border border-cielo-200 bg-panna p-10 text-center">
+          <p className="text-lg font-semibold text-cielo-800">Nessun turno inserito in {meseIt(mese)}</p>
+          <p className="mt-2 text-sm text-cielo-600">
+            Non c'è nulla da calcolare. Segna i turni nel registro e la previsione comparirà qui.
+          </p>
+          <Link
+            to="/turni"
+            className="mt-4 inline-block rounded-lg bg-cielo-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cielo-600"
+          >
+            Vai al Registro Turni
+          </Link>
+        </div>
+      )}
+
+      {r && (r.totale.ore > 0 || r.totale.reperibilita > 0) && (
         <>
           <div className="flex flex-wrap items-center gap-6 rounded-2xl border border-cielo-200 bg-panna p-5">
             <div>
@@ -70,12 +86,20 @@ export default function PrevisionePage() {
             </p>
           )}
 
-          <TabellaCalcolo titolo={`Totale (${r.postazioni.map((p) => p.calcolo.ore + 'h').join(' + ')})`} c={r.totale} />
+          <TabellaCalcolo
+            titolo={`Totale (${r.postazioni
+              .filter((p) => p.calcolo.ore > 0)
+              .map((p) => p.calcolo.ore + 'h')
+              .join(' + ')})`}
+            c={r.totale}
+          />
 
           <div className="grid gap-4 lg:grid-cols-2">
-            {r.postazioni.map((p) => (
-              <TabellaCalcolo key={p.postazione.id} titolo={p.postazione.nome} c={p.calcolo} compatta />
-            ))}
+            {r.postazioni
+              .filter((p) => p.calcolo.ore > 0 || p.calcolo.reperibilita > 0)
+              .map((p) => (
+                <TabellaCalcolo key={p.postazione.id} titolo={p.postazione.nome} c={p.calcolo} compatta />
+              ))}
           </div>
 
           <p className="text-xs text-cielo-500">

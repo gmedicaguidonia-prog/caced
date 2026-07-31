@@ -11,13 +11,17 @@ export default function HomePage() {
   const [cedolini, setCedolini] = useState<Cedolino[]>([])
   const [allarmi, setAllarmi] = useState<{ rata: string; righe: Riconciliazione['righe'] }[]>([])
   const [pronto, setPronto] = useState(false)
+  /** true appena esiste almeno un turno o una reperibilità in archivio */
+  const [haDati, setHaDati] = useState(true)
 
   useEffect(() => {
     let vivo = true
     async function carica() {
       const { data: mesi } = await dbLocale.calcoli.mesiDisponibili()
       const corrente = meseOggi()
-      const scelto = mesi && mesi.length ? (mesi.includes(corrente) ? corrente : mesi[mesi.length - 1]) : corrente
+      const conDati = mesi ?? []
+      const scelto = conDati.length ? (conDati.includes(corrente) ? corrente : conDati[conDati.length - 1]) : corrente
+      if (vivo) setHaDati(conDati.length > 0)
       const [{ data: r }, { data: rPrec }, { data: ced }] = await Promise.all([
         dbLocale.calcoli.mese(scelto),
         dbLocale.calcoli.mese(mesePiu(scelto, -1)),
@@ -87,8 +91,34 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ---- mese in corso ---- */}
-      {raccolta && (
+      {/* ---- nessun dato: si spiega da dove si comincia ---- */}
+      {pronto && !haDati && (
+        <div className="rounded-2xl border border-cielo-200 bg-panna p-8 text-center">
+          <p className="text-lg font-semibold text-cielo-800">Non hai ancora inserito nessun turno</p>
+          <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-cielo-600">
+            Comincia dal registro: segna i turni del mese e CACCA calcolerà da sola compensi, riepiloghi per
+            l'ufficio e controlli sui cedolini. Se hai già un cedolino, puoi anche importarlo subito: da lì
+            ricavo la postazione e il numero di iscrizione.
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link
+              to="/turni"
+              className="rounded-lg bg-cielo-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cielo-600"
+            >
+              Vai al Registro Turni
+            </Link>
+            <Link
+              to="/cedolini"
+              className="rounded-lg border border-cielo-300 px-5 py-2.5 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+            >
+              Importa un cedolino
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ---- mese in corso (solo se c'è qualcosa) ---- */}
+      {raccolta && (raccolta.totale.ore > 0 || raccolta.totale.reperibilita > 0) && (
         <div className="rounded-2xl border border-cielo-200 bg-panna p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-lg font-semibold text-cielo-800">
@@ -99,18 +129,20 @@ export default function HomePage() {
             </Link>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {raccolta.postazioni.map((p) => (
-              <div key={p.postazione.id} className="rounded-xl border border-cielo-200 bg-white p-4">
-                <p className="truncate text-xs font-semibold uppercase tracking-wide text-cielo-500" title={p.postazione.nome}>
-                  {p.postazione.nome}
-                </p>
-                <p className="mt-1 text-2xl font-bold text-cielo-800">{p.calcolo.ore} h</p>
-                <p className="text-xs text-cielo-600">
-                  {p.calcolo.turni} turni · {p.calcolo.reperibilita} reperibilità
-                  {p.calcolo.oreSuperfestive > 0 && ` · ★ ${p.calcolo.oreSuperfestive}h superfestive`}
-                </p>
-              </div>
-            ))}
+            {raccolta.postazioni
+              .filter((p) => p.calcolo.ore > 0 || p.calcolo.reperibilita > 0)
+              .map((p) => (
+                <div key={p.postazione.id} className="rounded-xl border border-cielo-200 bg-white p-4">
+                  <p className="truncate text-xs font-semibold uppercase tracking-wide text-cielo-500" title={p.postazione.nome}>
+                    {p.postazione.nome}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-cielo-800">{p.calcolo.ore} h</p>
+                  <p className="text-xs text-cielo-600">
+                    {p.calcolo.turni} turni · {p.calcolo.reperibilita} reperibilità
+                    {p.calcolo.oreSuperfestive > 0 && ` · ★ ${p.calcolo.oreSuperfestive}h superfestive`}
+                  </p>
+                </div>
+              ))}
             <div className="rounded-xl border border-cielo-300 bg-cielo-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">Totale previsto</p>
               <p className="mt-1 text-2xl font-bold text-cielo-800">{euro(raccolta.totale.netto)}</p>

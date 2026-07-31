@@ -78,13 +78,16 @@ function apriDb(nomeFile = 'cacca.db') {
 
     create table if not exists app_meta (k text primary key, v text);
 
+    -- sede_cedolino: com'è scritta la sede nei cedolini di questa postazione
+    -- (si impara una volta sola, confermando la domanda all'importazione)
     create table if not exists postazioni (
       id              text primary key,
       nome            text not null,
       nome_excel      text not null,
       suffisso_foglio text not null default '',
       ordine          integer not null default 0,
-      attiva          integer not null default 1
+      attiva          integer not null default 1,
+      sede_cedolino   text
     );
 
     -- Un giorno può avere PIÙ turni nella stessa postazione (es. 31/12:
@@ -152,12 +155,17 @@ function apriDb(nomeFile = 'cacca.db') {
     );
     create unique index if not exists cedolini_rata_uidx on cedolini (rata);
   `)
+  // archivi nati prima: la colonna si aggiunge senza toccare i dati
+  const colonnePost = db.prepare('pragma table_info(postazioni)').all().map((c) => c.name)
+  if (!colonnePost.includes('sede_cedolino')) db.exec('alter table postazioni add column sede_cedolino text')
   impostaValoriBase()
   seminaSeServe()
 }
 
 // Valori contrattuali di base (pubblici, dal contratto): presenti anche in
-// un'installazione nuova senza alcun dato personale.
+// un'installazione nuova. NON si creano postazioni: quelle le inserisce
+// l'utente (o nascono dal primo cedolino importato), così un'installazione
+// nuova parte davvero vuota.
 function impostaValoriBase() {
   const n = db.prepare('select count(*) as n from tariffe').get().n
   if (n === 0) {
@@ -172,14 +180,6 @@ function impostaValoriBase() {
       ['ra_pct', 20.0, '2000-01', "Ritenuta d'acconto su (lordo − ENPAM)"],
     ]
     for (const [tipo, valore, dal, note] of base) ins.run(crypto.randomUUID(), tipo, valore, dal, note)
-  }
-  const p = db.prepare('select count(*) as n from postazioni').get().n
-  if (p === 0) {
-    const ins = db.prepare(
-      'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine) values (?, ?, ?, ?, ?)',
-    )
-    ins.run(crypto.randomUUID(), 'Guidonia / Palombara Giorno', 'GUIDONIA/PALOMBARA GIORNO', '', 1)
-    ins.run(crypto.randomUUID(), 'Palombara Notte', 'PALOMBARA NOTTE', ' PALOMBARA', 2)
   }
 }
 
@@ -210,8 +210,8 @@ function applicaSeed(seed) {
       const id = esiste ? esiste.id : crypto.randomUUID()
       if (!esiste) {
         db.prepare(
-          'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine) values (?, ?, ?, ?, ?)',
-        ).run(id, p.nome, p.nome_excel, p.suffisso_foglio || '', p.ordine || 0)
+          'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine, sede_cedolino) values (?, ?, ?, ?, ?, ?)',
+        ).run(id, p.nome, p.nome_excel, p.suffisso_foglio || '', p.ordine || 0, p.sede_cedolino || null)
       }
       idPostazione[p.chiave] = id
     }
@@ -574,7 +574,13 @@ ipcMain.handle('pref:imposta', (_ev, { chiave, valore }) =>
 // ---------- IPC: postazioni ----------
 function elencoPostazioni() {
   return db
-    .prepare('select id, nome, nome_excel, suffisso_foglio, ordine, attiva from postazioni order by ordine, nome')
+    .prepare(
+      `select p.id, p.nome, p.nome_excel, p.suffisso_foglio, p.ordine, p.attiva, p.sede_cedolino,
+              (select count(*) from turni t where t.postazione_id = p.id) as turni,
+              (select count(*) from reperibilita r where r.postazione_id = p.id) as reperibilita
+         from postazioni p
+        order by p.ordine, p.nome`,
+    )
     .all()
     .map((p) => ({ ...p, attiva: !!p.attiva }))
 }
@@ -588,19 +594,49 @@ ipcMain.handle('postazioni:list', () =>
 
 ipcMain.handle('postazioni:salva', (_ev, r) =>
   rispondi(() => {
-    richiediAdmin()
+    richiediSessione()
     const nome = pulisci(r.nome)
     const nomeExcel = pulisci(r.nome_excel)
-    if (!nome || !nomeExcel) throw new Error('Nome e intestazione excel sono obbligatori.')
+    if (!nome || !nomeExcel) throw new Error("Il nome e l'intestazione del foglio excel sono obbligatori.")
     if (r.id) {
       db.prepare(
-        'update postazioni set nome = ?, nome_excel = ?, suffisso_foglio = ?, ordine = ?, attiva = ? where id = ?',
-      ).run(nome, nomeExcel, r.suffisso_foglio || '', Number(r.ordine) || 0, r.attiva === false ? 0 : 1, r.id)
-    } else {
-      db.prepare(
-        'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine) values (?, ?, ?, ?, ?)',
-      ).run(crypto.randomUUID(), nome, nomeExcel, r.suffisso_foglio || '', Number(r.ordine) || 0)
+        `update postazioni set nome = ?, nome_excel = ?, suffisso_foglio = ?, ordine = ?, attiva = ?,
+                               sede_cedolino = ?
+          where id = ?`,
+      ).run(
+        nome, nomeExcel, r.suffisso_foglio || '', Number(r.ordine) || 0,
+        r.attiva === false ? 0 : 1, pulisci(r.sede_cedolino), r.id,
+      )
+      return { id: r.id }
     }
+    const id = crypto.randomUUID()
+    const ultimo = db.prepare('select coalesce(max(ordine), 0) as n from postazioni').get().n
+    db.prepare(
+      'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine, sede_cedolino) values (?, ?, ?, ?, ?, ?)',
+    ).run(id, nome, nomeExcel, r.suffisso_foglio || '', Number(r.ordine) || ultimo + 1, pulisci(r.sede_cedolino))
+    return { id }
+  }),
+)
+
+// Una postazione con turni o reperibilità NON si cancella: si può solo
+// disattivare (così lo storico e i cedolini restano coerenti).
+ipcMain.handle('postazioni:elimina', (_ev, id) =>
+  rispondi(() => {
+    richiediSessione()
+    const p = db.prepare('select nome from postazioni where id = ?').get(id)
+    if (!p) throw new Error('Postazione non trovata.')
+    const turni = db.prepare('select count(*) as n from turni where postazione_id = ?').get(id).n
+    const rep = db.prepare('select count(*) as n from reperibilita where postazione_id = ?').get(id).n
+    if (turni + rep > 0) {
+      const pezzi = []
+      if (turni) pezzi.push(`${turni} ${turni === 1 ? 'turno' : 'turni'}`)
+      if (rep) pezzi.push(`${rep} ${rep === 1 ? 'reperibilità' : 'reperibilità'}`)
+      throw new Error(
+        `«${p.nome}» non si può eliminare: contiene ${pezzi.join(' e ')}. ` +
+          'Se non la usi più, toglile la spunta «attiva»: sparisce dai calendari ma lo storico resta.',
+      )
+    }
+    db.prepare('delete from postazioni where id = ?').run(id)
     return null
   }),
 )
@@ -932,18 +968,102 @@ ipcMain.handle('cedolini:importa', async () => {
       )
     }
     registra(`cedolino ${letto.rata} importato da ${origine}`)
-    return { data: riconciliaRata(letto.rata), error: null }
+    return { data: { ...riconciliaRata(letto.rata), suggerimenti: suggerimentiDaCedolino(letto) }, error: null }
   } catch (e) {
     return { data: null, error: { message: String((e && e.message) || e) } }
   }
 })
 
+/**
+ * Dal cedolino si ricavano la sede di servizio e il numero di iscrizione:
+ * se non li conosciamo ancora, si prepara la domanda da fare all'utente.
+ * Nulla viene deciso in automatico.
+ */
+function suggerimentiDaCedolino(letto) {
+  const postazioni = elencoPostazioni()
+  const esito = { sede: null, iscrizione: null }
+
+  if (letto.sede) {
+    const trovata = motore.cercaPostazionePerSede(letto.sede, postazioni)
+    if (!trovata.esatta) {
+      esito.sede = {
+        sede: letto.sede,
+        candidato: trovata.postazione
+          ? { id: trovata.postazione.id, nome: trovata.postazione.nome, somiglianza: trovata.somiglianza }
+          : null,
+        postazioni: postazioni.map((p) => ({ id: p.id, nome: p.nome })),
+        // nome proposto per una postazione nuova: "PALOMBARA (PPI)" → "Palombara (PPI)"
+        nomeProposto: nomeLeggibile(letto.sede),
+      }
+    }
+  }
+
+  if (letto.iscrizione) {
+    const esiste = db.prepare('select id from incarichi where iscrizione = ?').get(letto.iscrizione)
+    if (!esiste) {
+      esito.iscrizione = { numero: letto.iscrizione, dal: motore.mesePiu(letto.rata, -1), sede: letto.sede || null }
+    }
+  }
+
+  return esito.sede || esito.iscrizione ? esito : null
+}
+
+/** "PALOMBARA (PPI)" → "Palombara (PPI)" (iniziali maiuscole, sigle intatte). */
+function nomeLeggibile(sede) {
+  return String(sede || '')
+    .toLowerCase()
+    .replace(/\b[a-zàèéìòù]/g, (c) => c.toUpperCase())
+    .replace(/\(([^)]*)\)/g, (_t, dentro) => `(${dentro.toUpperCase()})`)
+    .trim()
+}
+
+/**
+ * Risposta alla domanda "è questa la postazione?".
+ * - postazioneId: collega la sede a una postazione esistente (e, se richiesto,
+ *   ne allinea il nome a quello del cedolino);
+ * - creaNuova: crea la postazione con il nome indicato.
+ */
+ipcMain.handle('cedolini:collega-sede', (_ev, r) =>
+  rispondi(() => {
+    richiediSessione()
+    const sede = pulisci(r.sede)
+    if (!sede) throw new Error('Sede non indicata.')
+
+    if (r.creaNuova) {
+      const nome = pulisci(r.nome) || nomeLeggibile(sede)
+      const id = crypto.randomUUID()
+      const ultimo = db.prepare('select coalesce(max(ordine), 0) as n from postazioni').get().n
+      db.prepare(
+        'insert into postazioni (id, nome, nome_excel, suffisso_foglio, ordine, sede_cedolino) values (?, ?, ?, ?, ?, ?)',
+      ).run(id, nome, sede.toUpperCase(), '', ultimo + 1, sede)
+      registra(`postazione «${nome}» creata dal cedolino (sede ${sede})`)
+      return { id, nome, creata: true }
+    }
+
+    const p = db.prepare('select * from postazioni where id = ?').get(r.postazioneId)
+    if (!p) throw new Error('Postazione non trovata.')
+    if (r.allineaNome) {
+      const nome = nomeLeggibile(sede)
+      db.prepare('update postazioni set nome = ?, nome_excel = ?, sede_cedolino = ? where id = ?').run(
+        nome, sede.toUpperCase(), sede, p.id,
+      )
+      registra(`postazione «${p.nome}» collegata alla sede ${sede} e rinominata «${nome}»`)
+      return { id: p.id, nome, creata: false }
+    }
+    db.prepare('update postazioni set sede_cedolino = ? where id = ?').run(sede, p.id)
+    registra(`postazione «${p.nome}» collegata alla sede ${sede}`)
+    return { id: p.id, nome: p.nome, creata: false }
+  }),
+)
+
 ipcMain.handle('cedolini:riconcilia', (_ev, id) =>
   rispondi(() => {
     richiediSessione()
-    const r = db.prepare('select rata from cedolini where id = ?').get(id)
+    const r = db.prepare('select * from cedolini where id = ?').get(id)
     if (!r) throw new Error('Cedolino non trovato.')
-    return riconciliaRata(r.rata)
+    const esito = riconciliaRata(r.rata)
+    // la domanda su sede e incarico resta finché non le si dà una risposta
+    return { ...esito, suggerimenti: suggerimentiDaCedolino({ rata: r.rata, sede: r.sede, iscrizione: r.iscrizione }) }
   }),
 )
 
@@ -1700,6 +1820,50 @@ function smoke() {
       rapporto.seed_ok = true
     }
 
+    // --- confronto nomi delle sedi (la domanda "è la stessa postazione?")
+    const sim = (a, b) => Math.round(motore.somiglianzaNomi(a, b) * 100)
+    rapporto.somiglianza_notte_abbreviata = sim('PALOMBARA NOt', 'Palombara Notte') // caso reale
+    rapporto.somiglianza_guidonia = sim('GUIDONIA', 'Guidonia / Palombara Giorno')
+    rapporto.somiglianza_estranea = sim('TIVOLI', 'Palombara Notte')
+    rapporto.nomi_ok =
+      rapporto.somiglianza_notte_abbreviata >= 90 &&
+      rapporto.somiglianza_guidonia >= 70 &&
+      rapporto.somiglianza_estranea === 0 &&
+      motore.normalizzaTesto('Palombara (PPI) — notte') === 'PALOMBARA PPI NOTTE'
+
+    // la sede già collegata non fa più domande; una sconosciuta sì
+    const finte = [
+      { id: 'a', nome: 'Palombara Notte', nome_excel: 'PALOMBARA NOTTE', sede_cedolino: 'PALOMBARA (PPI)' },
+      { id: 'b', nome: 'Guidonia / Palombara Giorno', nome_excel: 'GUIDONIA/PALOMBARA GIORNO', sede_cedolino: null },
+    ]
+    const giaNota = motore.cercaPostazionePerSede('PALOMBARA (PPI)', finte)
+    const daChiedere = motore.cercaPostazionePerSede('GUIDONIA', finte)
+    const mai = motore.cercaPostazionePerSede('OSPEDALE DI TIVOLI', finte)
+    rapporto.sede_gia_collegata = giaNota.esatta && giaNota.postazione.id === 'a'
+    rapporto.sede_da_confermare = !daChiedere.esatta && daChiedere.postazione?.id === 'b'
+    rapporto.sede_sconosciuta_senza_candidato = !mai.esatta && mai.postazione === null
+    rapporto.sedi_ok =
+      rapporto.sede_gia_collegata && rapporto.sede_da_confermare && rapporto.sede_sconosciuta_senza_candidato
+
+    // --- postazioni: una con turni non si cancella, una vuota sì
+    const idPiena = crypto.randomUUID()
+    const idVuota = crypto.randomUUID()
+    db.prepare('insert into postazioni (id, nome, nome_excel, ordine) values (?, ?, ?, 90)').run(
+      idPiena, 'Prova piena', 'PROVA PIENA',
+    )
+    db.prepare('insert into postazioni (id, nome, nome_excel, ordine) values (?, ?, ?, 91)').run(
+      idVuota, 'Prova vuota', 'PROVA VUOTA',
+    )
+    db.prepare('insert into turni (id, data, postazione_id, tipo) values (?, ?, ?, ?)').run(
+      crypto.randomUUID(), '2026-09-01', idPiena, 'nott12',
+    )
+    const turniPiena = db.prepare('select count(*) as n from turni where postazione_id = ?').get(idPiena).n
+    rapporto.postazione_piena_bloccata = turniPiena > 0
+    db.prepare('delete from postazioni where id = ?').run(idVuota)
+    rapporto.postazione_vuota_eliminata = !db.prepare('select id from postazioni where id = ?').get(idVuota)
+    db.prepare('delete from turni where postazione_id = ?').run(idPiena)
+    db.prepare('delete from postazioni where id = ?').run(idPiena)
+
     // --- excel: composizione riepilogo di prova
     const prova = excel.componiRiepilogo({
       mese: '2026-01',
@@ -1764,6 +1928,10 @@ function smoke() {
       rapporto.elenco_admin_ok &&
       rapporto.elenco_negato_a_utente &&
       rapporto.motore_ok &&
+      rapporto.nomi_ok &&
+      rapporto.sedi_ok &&
+      rapporto.postazione_piena_bloccata &&
+      rapporto.postazione_vuota_eliminata &&
       rapporto.seed_ok &&
       rapporto.excel_ok &&
       rapporto.cedolino_ok &&

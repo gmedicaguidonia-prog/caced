@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('cacca', {
   postazioni: {
     list: () => ipcRenderer.invoke('postazioni:list'),
     salva: (r) => ipcRenderer.invoke('postazioni:salva', r),
+    elimina: (id) => ipcRenderer.invoke('postazioni:elimina', id),
   },
   turni: {
     mese: (postazioneId, mese) => ipcRenderer.invoke('turni:mese', { postazioneId, mese }),
@@ -42,6 +43,7 @@ contextBridge.exposeInMainWorld('cacca', {
     list: () => ipcRenderer.invoke('cedolini:list'),
     importa: () => ipcRenderer.invoke('cedolini:importa'),
     riconcilia: (id) => ipcRenderer.invoke('cedolini:riconcilia', id),
+    collegaSede: (r) => ipcRenderer.invoke('cedolini:collega-sede', r),
     apri: (id) => ipcRenderer.invoke('cedolini:apri', id),
     elimina: (id) => ipcRenderer.invoke('cedolini:elimina', id),
   },
