@@ -13,7 +13,7 @@ import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import crypto from 'node:crypto'
 
-const REPO = 'marabellis-prog/cacca'
+const REPO = 'marabellis-prog/caced'
 const EXE = 'release/CACCA.exe'
 const MANIFESTO = 'release/aggiornamento.json'
 

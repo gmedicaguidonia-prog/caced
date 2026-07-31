@@ -20,7 +20,7 @@ const os = require('node:os')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 
-const REPO = 'marabellis-prog/cacca'
+const REPO = 'marabellis-prog/caced'
 const NOME_ASSET = 'CACCA.exe'
 const NOME_MANIFESTO = 'aggiornamento.json'
 const TIMEOUT_RETE = 15000
