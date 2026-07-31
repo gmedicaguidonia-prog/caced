@@ -63,8 +63,18 @@ export default function TariffePage() {
     await carica()
   }
 
-  // --- benzina ---
-  const [nuovaBenzina, setNuovaBenzina] = useState({ mese: meseOggi(), prezzo: '' })
+  // --- benzina: il prezzo non si scrive più a mano, lo calcola il programma ---
+  const [meseBenzina, setMeseBenzina] = useState(meseOggi())
+  // se il mese scelto non ha un prezzo suo, si mostra quello noto più vicino
+  // (è la stessa ipotesi che il programma usa per la previsione)
+  const prezzoDelMese =
+    benzina.find((b) => b.mese === meseBenzina) ??
+    benzina.filter((b) => b.mese < meseBenzina).sort((a, b) => (a.mese < b.mese ? 1 : -1))[0] ??
+    null
+  const daCedolino =
+    Boolean(prezzoDelMese) &&
+    prezzoDelMese!.mese === meseBenzina &&
+    /cedolino/i.test(prezzoDelMese!.fonte ?? '')
 
   async function completaBenzina() {
     const { data, error } = await dbLocale.benzina.completa()
@@ -81,17 +91,6 @@ export default function TariffePage() {
     toast.ok(
       `Sistemati ${data.length} mesi: ${esatti} dal cedolino (valore esatto), ${data.length - esatti} per stima.`,
     )
-  }
-  async function salvaBenzina() {
-    const prezzo = Number(String(nuovaBenzina.prezzo).replace(',', '.'))
-    const { error } = await dbLocale.benzina.imposta(nuovaBenzina.mese, prezzo)
-    if (error) {
-      toast.errore(error.message)
-      return
-    }
-    toast.ok('Prezzo benzina salvato.')
-    setNuovaBenzina({ ...nuovaBenzina, prezzo: '' })
-    await carica()
   }
 
   // --- incarichi ---
@@ -209,49 +208,50 @@ export default function TariffePage() {
           lo ricava da lì (voce 11 ÷ ore) per ogni mese già pagato; per i mesi non ancora pagati usa
           l'ultimo prezzo noto e lo segnala come stima.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {benzina.map((b) => {
-            const stima = /stima/i.test(b.fonte ?? '')
-            return (
-              <span
-                key={b.mese}
-                className={`rounded-full border px-3 py-1 text-xs ${
-                  stima ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-cielo-200 bg-white text-cielo-700'
-                }`}
-                title={b.fonte ?? ''}
-              >
-                {meseIt(b.mese)}: <b>{b.prezzo.toLocaleString('it-IT', { maximumFractionDigits: 5 })} €/L</b>
-                {stima && ' (stima)'}
-              </span>
-            )
-          })}
-        </div>
-        <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl bg-cielo-50 p-3">
+        <div className="mt-3 flex flex-wrap items-end gap-3 rounded-xl bg-cielo-50 p-3">
           <label className="text-xs text-cielo-700">
             Mese di lavoro
             <input
               type="month"
-              value={nuovaBenzina.mese}
-              onChange={(e) => setNuovaBenzina({ ...nuovaBenzina, mese: e.target.value })}
+              value={meseBenzina}
+              onChange={(e) => setMeseBenzina(e.target.value)}
               className={`${inputCls} block`}
             />
           </label>
           <label className="text-xs text-cielo-700">
             Prezzo €/litro
             <input
-              value={nuovaBenzina.prezzo}
-              onChange={(e) => setNuovaBenzina({ ...nuovaBenzina, prezzo: e.target.value })}
-              placeholder="es. 1,931"
-              className={`${inputCls} block w-28`}
+              readOnly
+              value={
+                prezzoDelMese
+                  ? prezzoDelMese.prezzo.toLocaleString('it-IT', { maximumFractionDigits: 5 })
+                  : '—'
+              }
+              title={prezzoDelMese?.fonte ?? 'Nessun prezzo per questo mese'}
+              className={`${inputCls} block w-32 cursor-default bg-white font-semibold`}
             />
           </label>
-          <button
-            onClick={() => void salvaBenzina()}
-            disabled={!nuovaBenzina.prezzo}
-            className="rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 disabled:opacity-50"
-          >
-            Salva prezzo
-          </button>
+          {prezzoDelMese ? (
+            daCedolino ? (
+              <span
+                className="mb-1.5 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-800"
+                title={prezzoDelMese.fonte ?? ''}
+              >
+                Prezzo da Cedolino
+              </span>
+            ) : (
+              <span
+                className="mb-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800"
+                title={prezzoDelMese.fonte ?? ''}
+              >
+                Prezzo Ricavato
+              </span>
+            )
+          ) : (
+            <span className="mb-1.5 rounded-full border border-cielo-300 bg-white px-3 py-1.5 text-xs text-cielo-500">
+              Nessun prezzo per questo mese
+            </span>
+          )}
         </div>
       </section>
 
