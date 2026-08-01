@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
 import type { Cedolino, FaseImport, Riconciliazione } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
 import { useEscape } from '../hooks/useEscape'
+import { useMese } from '../hooks/useMese'
 import { useToast } from '../hooks/useToast'
-import { euro, dataIt, meseIt } from '../lib/formato'
+import { euro, dataIt, meseIt, mesePiu } from '../lib/formato'
 import DomandaSede from '../components/DomandaSede'
+
+/** La rata di un mese paga sempre le ore del mese prima. */
+function meseDeiTurni(rata: string): string {
+  return mesePiu(rata, -1)
+}
+
 
 /** Cosa sta facendo CACCA, in parole povere, mentre l'import è in corso. */
 const PAROLE_FASE: Record<FaseImport, string> = {
@@ -61,6 +69,14 @@ function ModaleDuplicato({ rata, onScelta }: { rata: string; onScelta: (sostitui
 export default function CedoliniPage() {
   const { utente } = useAuth()
   const toast = useToast()
+  const { mese } = useMese()
+  // rata chiesta dalla Home: «/cedolini?rata=2026-07»
+  const [parametri] = useSearchParams()
+  const rataRichiesta = parametri.get('rata')
+  // I cedolini si guardano per anno: cambiando mese in alto la lista resta
+  // ferma, e cambia solo quando si passa a un altro anno.
+  const [anno, setAnno] = useState(() => (rataRichiesta ?? mese).slice(0, 4))
+  const primoGiro = useRef(true)
   const [cedolini, setCedolini] = useState<Cedolino[]>([])
   const [aperto, setAperto] = useState<string | null>(null)
   const [dettagli, setDettagli] = useState<Record<string, Riconciliazione>>({})
@@ -88,21 +104,33 @@ export default function CedoliniPage() {
     return elenco
   }, [])
 
+  // il primo anno mostrato lo decide la rata richiesta dalla Home; dopo, segue
+  // il mese scelto nella barra in alto
   useEffect(() => {
-    void (async () => {
-      const elenco = await carica()
-      // arrivando dalla Home («/cedolini?rata=2026-07») la voce giusta si apre da sola
-      const rata = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('rata')
-      if (!rata) return
-      const c = elenco.find((x) => x.rata === rata)
-      if (c) {
-        setAperto(c.id)
-        setTimeout(() => {
-          document.getElementById(`cedolino-${c.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }, 200)
-      }
-    })()
+    if (primoGiro.current) {
+      primoGiro.current = false
+      return
+    }
+    setAnno(mese.slice(0, 4))
+  }, [mese])
+
+  useEffect(() => {
+    void carica()
   }, [carica])
+
+  // arrivando dalla Home la voce giusta si apre da sola, anche se è di un altro
+  // anno rispetto al mese scelto in alto
+  useEffect(() => {
+    if (!rataRichiesta) return
+    setAnno(rataRichiesta.slice(0, 4))
+    const c = cedolini.find((x) => x.rata === rataRichiesta)
+    if (!c) return
+    setAperto(c.id)
+    const t = setTimeout(() => {
+      document.getElementById(`cedolino-${c.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 200)
+    return () => clearTimeout(t)
+  }, [rataRichiesta, cedolini])
 
   async function ricarica(id: string) {
     const { data, error } = await dbLocale.cedolini.riconcilia(id)
@@ -167,6 +195,9 @@ export default function CedoliniPage() {
     toast.ok(risolte ? 'Anomalie archiviate: non te le segnalo più.' : 'Anomalie di nuovo attive.')
   }
 
+  const dellAnno = cedolini.filter((c) => c.rata.slice(0, 4) === anno)
+  const anniConCedolini = Array.from(new Set(cedolini.map((c) => c.rata.slice(0, 4)))).sort()
+
   async function elimina(c: Cedolino) {
     if (!window.confirm(`Eliminare il cedolino della rata ${meseIt(c.rata)} dall'archivio?`)) return
     const { error } = await dbLocale.cedolini.elimina(c.id)
@@ -207,7 +238,7 @@ export default function CedoliniPage() {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Cedolini</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Cedolini {anno}</h1>
         <label
           className={`cursor-pointer rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 ${fase ? 'pointer-events-none opacity-50' : ''}`}
         >
@@ -228,21 +259,34 @@ export default function CedoliniPage() {
       <p className="text-sm text-cielo-600">
         Carica il PDF NoiPA appena arriva: CACCA legge le voci, archivia il file nella cartella dati e
         confronta ogni importo con le ore che avevi dichiarato. Le differenze saltano fuori da sole.
+        L'elenco mostra le rate del {anno}: per vedere un altro anno cambia anno con le frecce in alto.
       </p>
 
-      {cedolini.length === 0 && (
+      {cedolini.length === 0 ? (
         <p className="rounded-2xl border border-cielo-200 bg-panna p-6 text-center text-sm text-cielo-600">
           Nessun cedolino in archivio. Importa il primo con il pulsante qui sopra.
         </p>
+      ) : (
+        dellAnno.length === 0 && (
+          <p className="rounded-2xl border border-cielo-200 bg-panna p-6 text-center text-sm text-cielo-600">
+            Nessun cedolino del {anno} in archivio.
+            {anniConCedolini.length > 0 && (
+              <> Ne hai per: <b>{anniConCedolini.join(', ')}</b>.</>
+            )}
+          </p>
+        )
       )}
 
       <div className="space-y-3">
-        {cedolini.map((c) => {
+        {dellAnno.map((c) => {
           const det = dettagli[c.id]
           return (
             <section key={c.id} id={`cedolino-${c.id}`} className="overflow-hidden rounded-2xl border border-cielo-200 bg-panna">
               <button onClick={() => void apri(c.id)} className="flex w-full flex-wrap items-center gap-4 px-5 py-3 text-left">
                 <span className="min-w-32 text-lg font-semibold text-cielo-800">{meseIt(c.rata)}</span>
+                <span className="rounded-full bg-cielo-50 px-2.5 py-0.5 text-xs font-medium text-cielo-600">
+                  Turni di {meseIt(meseDeiTurni(c.rata))}
+                </span>
                 <span className="text-sm text-cielo-600">
                   lordo <b className="text-cielo-800">{euro(c.lordo)}</b>
                 </span>
