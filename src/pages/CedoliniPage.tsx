@@ -1,11 +1,32 @@
 import { useCallback, useEffect, useState } from 'react'
 import { dbLocale } from '../lib/db'
-import type { Cedolino, Riconciliazione } from '../lib/db'
+import type { Cedolino, FaseImport, Riconciliazione } from '../lib/db'
 import { useAuth } from '../hooks/useAuth'
 import { useEscape } from '../hooks/useEscape'
 import { useToast } from '../hooks/useToast'
 import { euro, dataIt, meseIt } from '../lib/formato'
 import DomandaSede from '../components/DomandaSede'
+
+/** Cosa sta facendo CACCA, in parole povere, mentre l'import è in corso. */
+const PAROLE_FASE: Record<FaseImport, string> = {
+  lettura: 'Leggo le voci dal PDF…',
+  drive: 'Salvo il PDF nella cartella DATI CACCA del tuo Drive…',
+  archivio: 'Metto gli importi in archivio…',
+  controllo: 'Confronto ogni voce con le ore che avevi dichiarato…',
+}
+
+/** Riquadro d'attesa: resta finché non arriva una risposta, qualunque essa sia. */
+function AttesaImport({ fase }: { fase: FaseImport }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-velo p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-cielo-200 bg-panna p-7 text-center shadow-xl">
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-cielo-200 border-t-cielo-500" />
+        <p className="mt-4 font-semibold text-cielo-800">Importazione in corso…</p>
+        <p className="mt-1 text-sm leading-relaxed text-cielo-600">{PAROLE_FASE[fase]}</p>
+      </div>
+    </div>
+  )
+}
 
 /** Avvisa che la rata è già in archivio e chiede se sostituirla. */
 function ModaleDuplicato({ rata, onScelta }: { rata: string; onScelta: (sostituisci: boolean) => void }) {
@@ -43,7 +64,8 @@ export default function CedoliniPage() {
   const [cedolini, setCedolini] = useState<Cedolino[]>([])
   const [aperto, setAperto] = useState<string | null>(null)
   const [dettagli, setDettagli] = useState<Record<string, Riconciliazione>>({})
-  const [importo, setImporto] = useState(false)
+  // se non è null l'import è in corso, e dice pure a che punto è
+  const [fase, setFase] = useState<FaseImport | null>(null)
   // domanda in sospeso su sede/incarico ricavati da un cedolino
   const [domanda, setDomanda] = useState<{ id: string; rata: string; dati: Riconciliazione['suggerimenti'] } | null>(
     null,
@@ -104,9 +126,9 @@ export default function CedoliniPage() {
   }
 
   async function importa(file: File, sostituisci = false) {
-    setImporto(true)
-    const { data, error } = await dbLocale.cedolini.importa(file, { sostituisci })
-    setImporto(false)
+    setFase('lettura')
+    const { data, error } = await dbLocale.cedolini.importa(file, { sostituisci, onFase: setFase })
+    setFase(null)
     if (error) {
       toast.errore(error.message)
       return
@@ -158,6 +180,8 @@ export default function CedoliniPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
+      {fase && <AttesaImport fase={fase} />}
+
       {domanda?.dati && (
         <DomandaSede
           suggerimenti={domanda.dati}
@@ -185,9 +209,9 @@ export default function CedoliniPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Cedolini</h1>
         <label
-          className={`cursor-pointer rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 ${importo ? 'pointer-events-none opacity-50' : ''}`}
+          className={`cursor-pointer rounded-lg bg-cielo-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cielo-600 ${fase ? 'pointer-events-none opacity-50' : ''}`}
         >
-          {importo ? 'Importazione…' : '⬆ Importa cedolino PDF'}
+          {fase ? 'Importazione…' : '⬆ Importa cedolino PDF'}
           <input
             type="file"
             accept="application/pdf"

@@ -125,6 +125,9 @@ export type RigaRiconciliazione = {
   testo: string | null
 }
 
+/** Le tappe dell'import, per far vedere all'utente a che punto siamo. */
+export type FaseImport = 'lettura' | 'drive' | 'archivio' | 'controllo'
+
 export type SuggerimentiCedolino = {
   sede: {
     sede: string
@@ -712,8 +715,10 @@ export const dbLocale = {
         const r = await supabase.from('cacca_cedolini').select('*').eq('id', id).single()
         return riconciliaCedolino(cedolinoDaRiga(pretendi(r) as Record<string, unknown>))
       }),
-    importa: (file: File, opzioni?: { sostituisci?: boolean }) =>
+    importa: (file: File, opzioni?: { sostituisci?: boolean; onFase?: (fase: FaseImport) => void }) =>
       esegui(async () => {
+        const fase = opzioni?.onFase ?? (() => {})
+        fase('lettura')
         const testo = await estraiTestoPdf(file)
         const letto = motore.leggiCedolino(testo)
         if (!letto.rata) {
@@ -730,6 +735,7 @@ export const dbLocale = {
         // il PDF va sul TUO Drive, nella cartella DATI CACCA
         let driveId: string | null = null
         let avvisoDrive: string | undefined
+        fase('drive')
         try {
           driveId = await caricaSuDrive(file, `cedolino-${letto.rata}.pdf`)
         } catch (e) {
@@ -748,6 +754,7 @@ export const dbLocale = {
           enpam: letto.enpam,
           ritenuta: letto.ritenuta,
         }
+        fase('archivio')
         const ins = await supabase
           .from('cacca_cedolini')
           .upsert(riga, { onConflict: 'utente,rata' })
@@ -755,6 +762,7 @@ export const dbLocale = {
           .single()
         const salvato = cedolinoDaRiga(pretendi(ins) as Record<string, unknown>)
         await completaBenzina()
+        fase('controllo')
         const esito = await riconciliaCedolino(salvato)
         return { ...esito, avvisoDrive }
       }),
