@@ -17,6 +17,8 @@ export const supabase = createClient(SUPABASE_URL, CHIAVE_PUBBLICA, {
   },
 })
 
-/** Client ID Google (progetto "sistema turni app"): login e accesso a Drive. */
+// Client ID Google del progetto dedicato "Caced" (nessuna app in comune, così
+// non si pestano i piedi a vicenda). Lo stesso client fa il login (via Supabase)
+// e chiede il permesso per scrivere i PDF su Drive.
 export const GOOGLE_CLIENT_ID =
-  '855709488250-ecan1t1dh7hdb5amf37bg0u6gl04pjlo.apps.googleusercontent.com'
+  '595929371139-7ebut2pms184vrc2s2ibf2r0lc3t77cg.apps.googleusercontent.com'
