@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
 import type { Cedolino, RaccoltaMese, Riconciliazione } from '../lib/db'
 import { useMese } from '../hooks/useMese'
-import { euro, dataIt, meseIt, mesePiu } from '../lib/formato'
+import { aMeseIt, euro, dataIt, meseIt, mesePiu } from '../lib/formato'
 
 export default function HomePage() {
   const { mese } = useMese()
@@ -151,7 +151,9 @@ export default function HomePage() {
               title="Apri l'archivio cedolini sulla rata di questo mese"
               className="block rounded-xl border border-cielo-300 bg-cielo-50 p-4 transition hover:border-cielo-400 hover:bg-cielo-100"
             >
-              <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">Totale previsto</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">
+                Totale previsto <span className="normal-case">(in pagamento {aMeseIt(raccolta.rata)})</span>
+              </p>
               <p className="mt-1 text-2xl font-bold text-cielo-800">{euro(raccolta.totale.netto)}</p>
               <p className="text-xs text-cielo-600">
                 netto stimato · valuta {dataIt(raccolta.valuta)}
@@ -172,76 +174,46 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ---- rata in arrivo (mese precedente) o già accreditata se il cedolino c'è ---- */}
+      {/* ---- rata accreditata: compare solo quando il cedolino è in archivio ---- */}
       {precedente && precedente.totale.ore > 0 && (() => {
         const cedRata = cedolini.find((c) => c.rata === precedente.rata)
-        const nettoCombacia =
-          cedRata != null && cedRata.netto != null && Math.abs(cedRata.netto - precedente.totale.netto) < 0.005
+        if (!cedRata) return null
+        const nettoCombacia = cedRata.netto != null && Math.abs(cedRata.netto - precedente.totale.netto) < 0.005
         return (
           <div className="rounded-2xl border border-cielo-200 bg-panna p-5">
             <h2 className="text-lg font-semibold text-cielo-800">
-              {cedRata ? 'Rata accreditata' : 'Rata in arrivo'}: {meseIt(precedente.rata)}
+              Rata accreditata: {meseIt(precedente.rata)}
             </h2>
             <p className="mt-1 text-sm text-cielo-600">
               Per le {precedente.totale.ore} ore di {meseIt(precedente.mese)}
-              {precedente.totale.reperibilita > 0 && ` e ${precedente.totale.reperibilita} reperibilità`}
-              {cedRata ? ' — cifre lette dal cedolino.' : '.'}
+              {precedente.totale.reperibilita > 0 && ` e ${precedente.totale.reperibilita} reperibilità`} —
+              cifre lette dal cedolino.
             </p>
-            {cedRata ? (
-              <div className="mt-3 flex flex-wrap items-center gap-6">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-cielo-500">Netto accreditato</p>
-                  <p className={`text-3xl font-bold ${nettoCombacia ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {euro(cedRata.netto)}
-                  </p>
-                  {!nettoCombacia && (
-                    <p className="text-xs text-cielo-500">previsto {euro(precedente.totale.netto)}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-cielo-500">Lordo</p>
-                  <p className="text-xl font-semibold text-cielo-700">{euro(cedRata.lordo)}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-cielo-500">Accreditata il</p>
-                  <p className="text-xl font-semibold text-cielo-700">{dataIt(cedRata.valuta)}</p>
-                </div>
-                <Link
-                  to={`/cedolini?rata=${precedente.rata}`}
-                  className="ml-auto rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
-                >
-                  Apri il cedolino
-                </Link>
+            <div className="mt-3 flex flex-wrap items-center gap-6">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-cielo-500">Netto accreditato</p>
+                <p className={`text-3xl font-bold ${nettoCombacia ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {euro(cedRata.netto)}
+                </p>
+                {!nettoCombacia && (
+                  <p className="text-xs text-cielo-500">previsto {euro(precedente.totale.netto)}</p>
+                )}
               </div>
-            ) : (
-              <div className="mt-3 flex flex-wrap items-center gap-6">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-cielo-500">Netto previsto</p>
-                  <p className="text-3xl font-bold text-cielo-800">{euro(precedente.totale.netto)}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-cielo-500">Lordo</p>
-                  <p className="text-xl font-semibold text-cielo-700">{euro(precedente.totale.lordo)}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-cielo-500">Accredito previsto</p>
-                  <p className="text-xl font-semibold text-cielo-700">{dataIt(precedente.valuta)}</p>
-                </div>
-                <Link
-                  to="/previsione"
-                  className="ml-auto rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
-                >
-                  Vedi il calcolo completo
-                </Link>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-cielo-500">Lordo</p>
+                <p className="text-xl font-semibold text-cielo-700">{euro(cedRata.lordo)}</p>
               </div>
-            )}
-            {!cedRata && precedente.benzina.stimato && (
-              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                Il compenso chilometrico è stimato con l'ultimo prezzo benzina noto
-                {precedente.benzina.da ? ` (${meseIt(precedente.benzina.da)})` : ''}: il valore esatto si
-                saprà dal cedolino.
-              </p>
-            )}
+              <div>
+                <p className="text-xs uppercase tracking-wide text-cielo-500">Accreditata il</p>
+                <p className="text-xl font-semibold text-cielo-700">{dataIt(cedRata.valuta)}</p>
+              </div>
+              <Link
+                to={`/cedolini?rata=${precedente.rata}`}
+                className="ml-auto rounded-lg border border-cielo-300 px-4 py-2 text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+              >
+                Apri il cedolino
+              </Link>
+            </div>
           </div>
         )
       })()}

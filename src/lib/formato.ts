@@ -24,6 +24,12 @@ export function meseIt(mese: string | null | undefined): string {
   return `${MESI_IT[m - 1]} ${a}`
 }
 
+/** '2026-08' → 'ad Agosto 2026' (la «d» eufonica davanti ai mesi con la vocale). */
+export function aMeseIt(mese: string | null | undefined): string {
+  const testo = meseIt(mese)
+  return `${/^[AEIOU]/i.test(testo) ? 'ad' : 'a'} ${testo}`
+}
+
 /** Mese corrente 'YYYY-MM'. */
 export function meseOggi(): string {
   const d = new Date()

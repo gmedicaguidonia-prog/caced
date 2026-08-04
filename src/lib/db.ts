@@ -6,7 +6,7 @@
 // registra su globalThis (vedi src/lib/motore.cjs).
 import './motore.cjs'
 import { supabase } from './supabase'
-import { caricaSuDrive, cartellaDatiCacca, linkCartellaDrive, linkDrive } from './drive'
+import { anteprimaDrive, caricaSuDrive, cartellaDatiCacca, linkCartellaDrive, linkDrive } from './drive'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const motore: any = (globalThis as { __motoreCACCA?: unknown }).__motoreCACCA
@@ -522,10 +522,19 @@ export const dbLocale = {
       const { data } = await supabase.auth.getSession()
       const email = data.session?.user?.email?.toLowerCase()
       if (!email) return null
-      const [aut, prefs] = await Promise.all([
-        supabase.from('cacca_autorizzati').select('email').limit(1),
+      const chiediSeAmmesso = () => supabase.from('cacca_autorizzati').select('email').limit(1)
+      const [primoTentativo, prefs] = await Promise.all([
+        chiediSeAmmesso(),
         supabase.from('cacca_preferenze').select('chiave, valore').in('chiave', ['nome', 'cognome']),
       ])
+      // subito dopo l'accesso la richiesta può partire prima che il nuovo
+      // permesso sia in uso: si riprova una volta, altrimenti si vedrebbe per
+      // sbaglio la schermata «non sei autorizzato»
+      let aut = primoTentativo
+      if (!aut.error && (aut.data ?? []).length === 0) {
+        await new Promise((r) => setTimeout(r, 400))
+        aut = await chiediSeAmmesso()
+      }
       const autorizzato = !aut.error && (aut.data ?? []).length > 0
       const p = new Map(((prefs.data as { chiave: string; valore: string }[]) ?? []).map((x) => [x.chiave, x.valore]))
       return {
@@ -806,13 +815,13 @@ export const dbLocale = {
         pretendi(await supabase.from('cacca_cedolini').update({ anomalie_risolte: risolte }).eq('id', id))
         return null
       }),
-    apri: (id: string) =>
+    /** I due indirizzi del PDF: uno per la scheda del browser, uno per la finestra interna. */
+    linkPdf: (id: string) =>
       esegui(async () => {
         const r = await supabase.from('cacca_cedolini').select('drive_file_id').eq('id', id).single()
         const fileId = (pretendi(r) as { drive_file_id: string | null }).drive_file_id
         if (!fileId) throw new Error('Il PDF di questo cedolino non è su Drive: reimportalo per caricarlo.')
-        window.open(linkDrive(fileId), '_blank', 'noopener')
-        return null
+        return { scheda: linkDrive(fileId), dentroApp: anteprimaDrive(fileId) }
       }),
     elimina: (id: string) =>
       esegui(async () => {

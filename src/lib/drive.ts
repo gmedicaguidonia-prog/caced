@@ -153,6 +153,11 @@ export function linkDrive(fileId: string): string {
   return `https://drive.google.com/file/d/${fileId}/view`
 }
 
+/** Stesso file, ma nella versione che si può mostrare dentro l'app. */
+export function anteprimaDrive(fileId: string): string {
+  return `https://drive.google.com/file/d/${fileId}/preview`
+}
+
 export function linkCartellaDrive(cartellaId: string): string {
   return `https://drive.google.com/drive/folders/${cartellaId}`
 }

@@ -63,8 +63,10 @@ export default function PrevisionePage() {
               <p className="mt-1 text-4xl font-bold text-cielo-800">{euro(r.totale.netto)}</p>
               <p className="text-sm text-cielo-600">netto · lordo {euro(r.totale.lordo)}</p>
               <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-cielo-700">
-                <span>
-                  Rata <b>{meseIt(r.rata)}</b>
+                <span className="leading-tight">
+                  In pagamento nella
+                  <br />
+                  Rata di <b>{meseIt(r.rata)}</b>
                 </span>
                 <span>
                   Accredito <b>{dataIt(r.valuta)}</b>

@@ -76,12 +76,16 @@ async function scaricaExcel(dati: Dati, nomeFileExcel: string): Promise<void> {
   const wb = new ExcelJS.Workbook()
   const nomeFoglio = `${motore.MESI[meseNum - 1]} ${anno}${dati.postazione.suffisso_foglio || ''}`.slice(0, 31)
   const ws = wb.addWorksheet(nomeFoglio)
-  const larghezze: Record<string, number> = { A: 8, B: 17, C: 15, D: 14, E: 14, F: 14, G: 14, H: 14 }
+  // colonne larghe quanto basta a leggere ogni intestazione su una riga sola
+  // (con un po' di margine: in stampa il foglio viene comunque adattato alla pagina)
+  const larghezze: Record<string, number> = { A: 10, B: 40, C: 32, D: 26, E: 23, F: 23, G: 16, H: 17 }
   for (const [c, w] of Object.entries(larghezze)) ws.getColumn(c).width = w
 
-  ws.getRow(1).height = 75
-  ws.getCell('A1').value = `RIEPILOGO ORE C.A. POSTAZIONE DI ${dati.postazione.nome_excel} `
+  ws.getRow(1).height = 24
+  ws.mergeCells('A1:E1')
+  ws.getCell('A1').value = `RIEPILOGO ORE C.A. POSTAZIONE DI ${dati.postazione.nome_excel}`
   ws.getCell('A1').font = TNR(14, true)
+  ws.getCell('A1').alignment = { vertical: 'middle' }
   ws.getCell('F1').value = 'DR.'
   ws.getCell('F1').font = TNR(14, true)
   ws.getCell('G1').value = dati.medico.cognome.toUpperCase()
@@ -98,16 +102,17 @@ async function scaricaExcel(dati: Dati, nomeFileExcel: string): Promise<void> {
   ws.getCell('C3').value = anno
   ws.getCell('C3').font = TNR(14, true)
 
-  ws.getRow(5).height = 62
+  // intestazioni su una riga sola: niente testo mandato a capo
+  ws.getRow(5).height = 22
   ws.getCell('A5').value = 'GIORNO'
-  ws.getCell('A5').font = APTOS(12, true)
-  ws.getCell('A5').alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+  ws.getCell('A5').font = APTOS(11, true)
+  ws.getCell('A5').alignment = { vertical: 'middle', horizontal: 'center' }
   ws.getCell('A5').border = GRIGLIA
   for (const [lettera, testo] of INTESTAZIONI) {
     const cella = ws.getCell(`${lettera}5`)
     cella.value = testo
     cella.font = APTOS(11, true)
-    cella.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cella.alignment = { vertical: 'middle', horizontal: 'center' }
     cella.border = GRIGLIA
     cella.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF3F8' } }
   }
@@ -225,10 +230,17 @@ function componiHtml(dati: Dati): string {
     )
   }
 
-  const meta = Math.ceil(righe.length / 2)
+  // stessa impaginazione del foglio excel: una tabella sola, tutti i giorni in fila
   const teste = (motore.TIPI_TURNO as { nome: string }[]).map((t) => `<th>${t.nome.toUpperCase()}</th>`).join('')
-  const blocco = (da: number, a: number) =>
-    `<table><thead><tr><th class="giorno">GIORNO</th>${teste}<th>SUPER<br>FESTIVO</th><th>REPERI<br>BILIT&Agrave;</th></tr></thead><tbody>${righe.slice(da, a).join('')}</tbody></table>`
+  // ogni colonna larga in proporzione al suo titolo, così nessuna intestazione
+  // va a capo né sborda dalla cella
+  const colonne =
+    '<colgroup>' +
+    [4.4, 24.2, 18.3, 14, 12.2, 12.2, 7.8, 6.9].map((p) => `<col style="width:${p}%">`).join('') +
+    '</colgroup>'
+  const tabella =
+    `<table>${colonne}<thead><tr><th class="giorno">GIORNO</th>${teste}<th>SUPERFESTIVO</th><th>REPERIBILIT&Agrave;</th></tr></thead>` +
+    `<tbody>${righe.join('')}</tbody></table>`
   const medico = `${dati.medico.cognome.toUpperCase()} ${dati.medico.nome.toUpperCase()}`
 
   return `<!doctype html><html lang="it"><head><meta charset="utf-8">
@@ -243,22 +255,20 @@ function componiHtml(dati: Dati): string {
     @media print { .barra { display: none; } body { padding: 0; } }
     h1 { font-size: 14pt; margin: 0 0 1mm; }
     .riga-testa { display: flex; justify-content: space-between; align-items: flex-end;
-                  border-bottom: 0.8mm solid #000; padding-bottom: 1.5mm; margin-bottom: 3mm; }
+                  border-bottom: 0.8mm solid #000; padding-bottom: 1mm; margin-bottom: 2mm; }
     .medico { font-size: 12pt; font-weight: bold; white-space: nowrap; }
     .mese { font-size: 12pt; margin: 0; }
-    .colonne { display: flex; gap: 6mm; align-items: flex-start; }
-    .colonne > table { flex: 1; }
     table { border-collapse: collapse; table-layout: fixed; font-size: 8pt; width: 100%; }
-    th, td { border: 0.3mm solid #9aa7b0; padding: 0.4mm 0.6mm; text-align: center; }
-    th { background: #edf3f8; font-size: 6.4pt; line-height: 1.1; vertical-align: middle;
-         font-family: Arial, sans-serif; height: 13mm; }
-    th.giorno, td.giorno { width: 11mm; }
-    td { font-family: Arial, sans-serif; font-weight: bold; height: 4.4mm; line-height: 1; }
+    th, td { border: 0.3mm solid #9aa7b0; padding: 0.4mm 1mm; text-align: center; }
+    /* intestazioni su una riga sola, come nel foglio excel */
+    th { background: #edf3f8; font-size: 6.9pt; line-height: 1.1; vertical-align: middle;
+         font-family: Arial, sans-serif; height: 6.5mm; white-space: nowrap; }
+    th.giorno, td.giorno { width: 13mm; }
+    td { font-family: Arial, sans-serif; font-weight: bold; height: 3.9mm; line-height: 1; }
     td.giorno { font-weight: normal; background: #f7f9fb; }
     tr.vuota td { color: #aaa; font-weight: normal; }
-    .totali { margin-top: 3.5mm; font-size: 12pt; font-weight: bold; }
+    .totali { margin-top: 2.5mm; margin-bottom: 0; font-size: 12pt; font-weight: bold; }
     .totali span { display: inline-block; margin-right: 16mm; }
-    .piede { margin-top: 2.5mm; font-size: 7pt; color: #666; border-top: 0.2mm solid #ccc; padding-top: 1.5mm; }
   </style></head><body>
     <div class="barra">🖨️ Da qui puoi stampare o salvare in PDF (formato orizzontale già impostato).
       <button onclick="window.print()">Stampa / Salva PDF</button></div>
@@ -269,8 +279,7 @@ function componiHtml(dati: Dati): string {
       </div>
       <div class="medico">DR. ${medico}</div>
     </div>
-    <div class="colonne">${blocco(0, meta)}${blocco(meta, righe.length)}</div>
+    ${tabella}
     <p class="totali"><span>TOTALE ORE DI SERVIZIO: ${totaleOre}</span><span>TOTALE REPERIBILIT&Agrave;: ${totaleRep}</span></p>
-    <p class="piede">Documento generato da CACCA — Calcolo Automatico Cedolini Continuit&agrave; Assistenziale</p>
   </body></html>`
 }

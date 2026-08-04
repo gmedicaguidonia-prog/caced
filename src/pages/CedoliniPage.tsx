@@ -8,6 +8,7 @@ import { useMese } from '../hooks/useMese'
 import { useToast } from '../hooks/useToast'
 import { euro, dataIt, meseIt, mesePiu } from '../lib/formato'
 import DomandaSede from '../components/DomandaSede'
+import Finestra from '../components/Finestra'
 
 /** La rata di un mese paga sempre le ore del mese prima. */
 function meseDeiTurni(rata: string): string {
@@ -31,6 +32,53 @@ function AttesaImport({ fase }: { fase: FaseImport }) {
         <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-cielo-200 border-t-cielo-500" />
         <p className="mt-4 font-semibold text-cielo-800">Importazione in corso…</p>
         <p className="mt-1 text-sm leading-relaxed text-cielo-600">{PAROLE_FASE[fase]}</p>
+      </div>
+    </div>
+  )
+}
+
+/** Dove aprire il PDF: in una scheda del browser o in una finestra qui dentro. */
+function DoveApriIlPdf({
+  rata,
+  onScelta,
+}: {
+  rata: string
+  onScelta: (dove: 'scheda' | 'finestra' | null) => void
+}) {
+  useEscape(() => onScelta(null))
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-velo p-4">
+      <div className="w-full max-w-md rounded-2xl border border-cielo-200 bg-panna p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-cielo-800">Cedolino di {meseIt(rata)}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-cielo-700">Dove vuoi vederlo?</p>
+        <div className="mt-4 space-y-2">
+          <button
+            onClick={() => onScelta('finestra')}
+            className="w-full rounded-lg bg-cielo-500 px-4 py-3 text-left text-sm font-medium text-white transition hover:bg-cielo-600"
+          >
+            🪟 Qui dentro, in una finestra
+            <span className="mt-0.5 block text-xs font-normal text-white/80">
+              La sposti trascinandola e la chiudi con Esc, senza uscire da CACCA.
+            </span>
+          </button>
+          <button
+            onClick={() => onScelta('scheda')}
+            className="w-full rounded-lg border border-cielo-300 px-4 py-3 text-left text-sm font-medium text-cielo-700 transition hover:bg-cielo-50"
+          >
+            ↗ In una scheda del browser
+            <span className="mt-0.5 block text-xs font-normal text-cielo-500">
+              Si apre su Google Drive, a tutto schermo.
+            </span>
+          </button>
+        </div>
+        <div className="mt-4 text-right">
+          <button
+            onClick={() => onScelta(null)}
+            className="rounded-lg px-3 py-1.5 text-sm text-cielo-600 transition hover:bg-cielo-50"
+          >
+            Annulla
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -88,6 +136,9 @@ export default function CedoliniPage() {
   )
   // stessa rata già in archivio: si chiede se sostituirla col PDF appena scelto
   const [duplicato, setDuplicato] = useState<{ file: File; rata: string } | null>(null)
+  // apertura del PDF: prima si chiede dove, poi eventualmente lo si mostra qui
+  const [dovePdf, setDovePdf] = useState<{ rata: string; scheda: string; dentroApp: string } | null>(null)
+  const [finestraPdf, setFinestraPdf] = useState<{ rata: string; url: string; scheda: string } | null>(null)
 
   const carica = useCallback(async () => {
     const { data } = await dbLocale.cedolini.list()
@@ -195,6 +246,16 @@ export default function CedoliniPage() {
     toast.ok(risolte ? 'Anomalie archiviate: non te le segnalo più.' : 'Anomalie di nuovo attive.')
   }
 
+  /** Prima di aprire un cedolino si chiede sempre dove mostrarlo. */
+  async function chiediDoveAprire(c: Cedolino) {
+    const { data, error } = await dbLocale.cedolini.linkPdf(c.id)
+    if (error) {
+      toast.errore(error.message)
+      return
+    }
+    if (data) setDovePdf({ rata: c.rata, ...data })
+  }
+
   const dellAnno = cedolini.filter((c) => c.rata.slice(0, 4) === anno)
   const anniConCedolini = Array.from(new Set(cedolini.map((c) => c.rata.slice(0, 4)))).sort()
 
@@ -223,6 +284,38 @@ export default function CedoliniPage() {
             if (aggiornato) void ricarica(id)
           }}
         />
+      )}
+
+      {dovePdf && (
+        <DoveApriIlPdf
+          rata={dovePdf.rata}
+          onScelta={(dove) => {
+            const scelto = dovePdf
+            setDovePdf(null)
+            if (!scelto || !dove) return
+            if (dove === 'scheda') window.open(scelto.scheda, '_blank', 'noopener')
+            else setFinestraPdf({ rata: scelto.rata, url: scelto.dentroApp, scheda: scelto.scheda })
+          }}
+        />
+      )}
+
+      {finestraPdf && (
+        <Finestra
+          titolo={`Cedolino di ${meseIt(finestraPdf.rata)}`}
+          onChiudi={() => setFinestraPdf(null)}
+          azioni={
+            <a
+              href={finestraPdf.scheda}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded px-2 py-1 text-xs text-cielo-600 transition hover:bg-cielo-200 hover:text-cielo-800"
+            >
+              Apri in una scheda
+            </a>
+          }
+        >
+          <iframe src={finestraPdf.url} title={`Cedolino di ${meseIt(finestraPdf.rata)}`} className="h-full w-full border-0" />
+        </Finestra>
       )}
 
       {duplicato && (
@@ -399,7 +492,7 @@ export default function CedoliniPage() {
                             </button>
                           ))}
                         <button
-                          onClick={() => void dbLocale.cedolini.apri(c.id).then(({ error }) => error && toast.errore(error.message))}
+                          onClick={() => void chiediDoveAprire(c)}
                           className="rounded-lg border border-cielo-300 px-3 py-1.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
                         >
                           Apri il PDF
