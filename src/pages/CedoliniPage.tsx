@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useEscape } from '../hooks/useEscape'
 import { useMese } from '../hooks/useMese'
 import { useToast } from '../hooks/useToast'
-import { euro, dataIt, meseIt, mesePiu } from '../lib/formato'
+import { formattaOre, euro, dataIt, meseIt, mesePiu } from '../lib/formato'
 import DomandaSede from '../components/DomandaSede'
 import Finestra from '../components/Finestra'
 
@@ -414,7 +414,10 @@ export default function CedoliniPage() {
                   ) : (
                     <>
                       <p className="text-sm text-cielo-600">
-                        Confronto con le ore di <b>{det.etichettaMese}</b> ({det.atteso.totale.ore}h,{' '}
+                        Confronto con le ore di <b>{det.etichettaMese}</b> ({formattaOre(det.atteso.totale.ore)}h
+                        {det.atteso.totale.oreStraordinario > 0 &&
+                          ` di cui ${formattaOre(det.atteso.totale.oreStraordinario)} di straordinario`}
+                        ,{' '}
                         {det.atteso.totale.reperibilita} reperibilità
                         {det.atteso.totale.oreSuperfestive > 0 && `, ★ ${det.atteso.totale.oreSuperfestive}h superfestive`}
                         ).
