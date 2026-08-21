@@ -88,6 +88,38 @@ controlla('sf 1 maggio fest12 = 12', motore.oreSuperfestiveAuto('2026-05-01', 'f
 controlla('sf 2 giugno fest24 = 12', motore.oreSuperfestiveAuto('2026-06-02', 'fest24') === 12)
 controlla('valuta giugno anticipata', motore.dataValuta('2026-06') === '2026-06-26')
 
+// straordinario (AIR pag. 17: «i normali compensi rapportati alla durata del
+// prolungamento») — le ore in piu' pagano onorario + AIR + chilometrico alle
+// stesse tariffe del mese, niente maggiorazioni, ENPAM e ritenuta a cascata
+{
+  const mese = '2026-03'
+  const base = calcoloMese(mese)
+  const turni = seed.turni.filter((t) => t.data.startsWith(mese)).map((t) => ({ ...t }))
+  turni[0] = { ...turni[0], straordinario_ore: 2.5 }
+  const reperibilita = seed.reperibilita.filter((r) => r.data.startsWith(mese))
+  const conStra = motore.calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo: benzina.get(mese) ?? null })
+  const tOn = motore.tariffaVigente(tariffe, 'onorario', mese)
+  const tAir = motore.tariffaVigente(tariffe, 'air_ora', mese)
+  const prezzoL = benzina.get(mese) ?? 0
+  controlla('straordinario: ore totali = turni + 2,5', quasi(conStra.ore, base.ore + 2.5))
+  controlla('straordinario: oreTurni invariate', quasi(conStra.oreTurni, base.ore))
+  controlla('straordinario: oreStraordinario = 2,5', quasi(conStra.oreStraordinario, 2.5))
+  controlla('straordinario: onorario +2,5h', quasi(conStra.importi.onorario, motore.round2(base.importi.onorario + 2.5 * tOn)))
+  controlla('straordinario: AIR +2,5h', quasi(conStra.importi.air, motore.round2(base.importi.air + 2.5 * tAir)))
+  controlla('straordinario: chilometrico +2,5h', quasi(conStra.importi.benzina, motore.round2(conStra.ore * prezzoL)))
+  controlla('straordinario: superfestivo INVARIATO', quasi(conStra.importi.superfestivo, base.importi.superfestivo))
+  controlla('straordinario: reperibilita INVARIATA', quasi(conStra.importi.reperibilita, base.importi.reperibilita))
+  const lordoAtteso = motore.round2(
+    conStra.importi.onorario + conStra.importi.air + conStra.importi.superfestivo + conStra.importi.reperibilita + conStra.importi.benzina,
+  )
+  controlla('straordinario: lordo = somma voci', quasi(conStra.lordo, lordoAtteso))
+  const enpamAtteso = motore.round2((conStra.lordo * 15.625) / 100)
+  const nettoAtteso = motore.round2(motore.round2(conStra.lordo - enpamAtteso) * 0.8)
+  controlla('straordinario: netto con ENPAM e ritenuta a cascata', quasi(conStra.netto, nettoAtteso))
+  // senza straordinario tutto resta identico a prima (campo assente = 0)
+  controlla('senza straordinario: lordo identico', quasi(base.lordo, calcoloMese(mese).lordo))
+}
+
 // somiglianza nomi sedi
 const sim = (a, b) => Math.round(motore.somiglianzaNomi(a, b) * 100)
 controlla('PALOMBARA NOt ~ Palombara Notte >= 90', sim('PALOMBARA NOt', 'Palombara Notte') >= 90)

@@ -191,22 +191,35 @@ function tariffaVigente(tariffe, tipo, meseLavoro) {
 // ---------- calcolo del mese ----------
 /**
  * Calcola il compenso atteso per le ore di un mese di lavoro.
- * turni: [{ data, tipo, superfestivo_ore }] · reperibilita: [{ data, quantita }]
+ * turni: [{ data, tipo, superfestivo_ore, straordinario_ore }] ·
+ * reperibilita: [{ data, quantita }]
  * benzinaPrezzo: €/litro del mese (voce chilometrica ACN art. 72 c.2 = prezzo
  * di un litro di benzina verde per ogni ora di attività). Se assente → 0 e
  * la stima viene marcata come parziale.
+ *
+ * STRAORDINARIO (prolungamento del turno): l'AIR Lazio 2026 (pag. 17) dice
+ * «al medico che è costretto a restare oltre la fine del proprio turno
+ * spettano i normali compensi rapportati alla durata del prolungamento del
+ * servizio». Niente maggiorazione dedicata: le ore di straordinario si
+ * sommano alle ore del mese e vengono pagate con le stesse voci orarie del
+ * turno — onorario ACN (voce 40), incremento A.I.R. (voce 45) e chilometrico
+ * (voce 11). Sul cedolino compariranno quindi come ore in più nelle voci
+ * ordinarie, non come voce separata.
  */
 function calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo }) {
-  let ore = 0
+  let oreTurni = 0
+  let oreStra = 0
   let oreSf = 0
   let nTurni = 0
   for (const t of turni || []) {
     const tipo = tipoTurno(t.tipo)
     if (!tipo) continue
-    ore += tipo.ore
+    oreTurni += tipo.ore
     nTurni += 1
     oreSf += Number(t.superfestivo_ore) || 0
+    oreStra += Number(t.straordinario_ore) || 0
   }
+  const ore = round2(oreTurni + oreStra)
   let rep = 0
   for (const r of reperibilita || []) rep += Number(r.quantita) || 0
 
@@ -232,6 +245,8 @@ function calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo }) {
   return {
     mese,
     ore,
+    oreTurni,
+    oreStraordinario: oreStra,
     oreSuperfestive: oreSf,
     turni: nTurni,
     reperibilita: rep,

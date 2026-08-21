@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
 import type { Cedolino, RaccoltaMese, Riconciliazione } from '../lib/db'
 import { useMese } from '../hooks/useMese'
-import { aMeseIt, euro, dataIt, meseIt, mesePiu } from '../lib/formato'
+import { formattaOre, aMeseIt, euro, dataIt, meseIt, mesePiu } from '../lib/formato'
 
 export default function HomePage() {
   const { mese } = useMese()
@@ -139,10 +139,11 @@ export default function HomePage() {
                   <p className="truncate text-xs font-semibold uppercase tracking-wide text-cielo-500" title={p.postazione.nome}>
                     {p.postazione.nome}
                   </p>
-                  <p className="mt-1 text-2xl font-bold text-cielo-800">{p.calcolo.ore} h</p>
+                  <p className="mt-1 text-2xl font-bold text-cielo-800">{formattaOre(p.calcolo.ore)} h</p>
                   <p className="text-xs text-cielo-600">
                     {p.calcolo.turni} turni · {p.calcolo.reperibilita} reperibilità
                     {p.calcolo.oreSuperfestive > 0 && ` · ★ ${p.calcolo.oreSuperfestive}h superfestive`}
+                    {p.calcolo.oreStraordinario > 0 && ` · ⏱ ${formattaOre(p.calcolo.oreStraordinario)}h straordinario`}
                   </p>
                 </div>
               ))}
@@ -185,7 +186,7 @@ export default function HomePage() {
               Rata accreditata: {meseIt(precedente.rata)}
             </h2>
             <p className="mt-1 text-sm text-cielo-600">
-              Per le {precedente.totale.ore} ore di {meseIt(precedente.mese)}
+              Per le {formattaOre(precedente.totale.ore)} ore di {meseIt(precedente.mese)}
               {precedente.totale.reperibilita > 0 && ` e ${precedente.totale.reperibilita} reperibilità`} —
               cifre lette dal cedolino.
             </p>

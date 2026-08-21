@@ -4,7 +4,7 @@ import { dbLocale, TIPI_TURNO } from '../lib/db'
 import type { MeseTurni, Postazione } from '../lib/db'
 import { useToast } from '../hooks/useToast'
 import { useMese } from '../hooks/useMese'
-import { giorniNelMese, meseIt } from '../lib/formato'
+import { formattaOre, giorniNelMese, meseIt } from '../lib/formato'
 
 /** Anteprima fedele del modello dell'ufficio + generazione di excel e PDF. */
 export default function RiepiloghiPage() {
@@ -125,7 +125,9 @@ function Anteprima({
     return { t, r }
   }, [dati])
 
-  const totOre = dati.turni.reduce((acc, t) => acc + (TIPI_TURNO.find((x) => x.codice === t.tipo)?.ore ?? 0), 0)
+  const totStra = dati.turni.reduce((acc, t) => acc + (t.straordinario_ore || 0), 0)
+  const totOre =
+    dati.turni.reduce((acc, t) => acc + (TIPI_TURNO.find((x) => x.codice === t.tipo)?.ore ?? 0), 0) + totStra
   const totRep = dati.reperibilita.reduce((acc, r) => acc + r.quantita, 0)
 
   return (
@@ -136,7 +138,7 @@ function Anteprima({
             RIEPILOGO ORE C.A. POSTAZIONE DI {postazione.nome_excel}
           </h2>
           <p className="text-sm text-cielo-600">
-            {meseIt(mese)} — {totOre} ore di servizio, {totRep} reperibilità
+            {meseIt(mese)} — {formattaOre(totOre)} ore di servizio{totStra > 0 && <> (di cui {formattaOre(totStra)} di straordinario)</>}, {totRep} reperibilità
           </p>
         </div>
         <div className="flex gap-2">
@@ -171,6 +173,7 @@ function Anteprima({
               ))}
               <th className="border border-cielo-200 bg-cielo-50 px-1.5 py-1">Superfestivo</th>
               <th className="border border-cielo-200 bg-cielo-50 px-1.5 py-1">Reperibilità</th>
+              <th className="border border-cielo-200 bg-cielo-50 px-1.5 py-1">Straordinario</th>
             </tr>
           </thead>
           <tbody>
@@ -185,6 +188,7 @@ function Anteprima({
                     {TIPI_TURNO.map((t) => (
                       <td key={t.codice} className="border border-cielo-100 px-1.5 py-0.5" />
                     ))}
+                    <td className="border border-cielo-100 px-1.5 py-0.5" />
                     <td className="border border-cielo-100 px-1.5 py-0.5" />
                     <td className="border border-cielo-100 px-1.5 py-0.5" />
                   </tr>
@@ -204,6 +208,12 @@ function Anteprima({
                   <td className="border border-cielo-200 px-1.5 py-0.5 text-center">
                     {rep ? (rep.quantita > 1 ? '2X' : 'X') : ''}
                   </td>
+                  <td className="border border-cielo-200 px-1.5 py-0.5 text-center">
+                    {(() => {
+                      const stra = turniGiorno.reduce((acc, x) => acc + (x.straordinario_ore || 0), 0)
+                      return stra > 0 ? stra.toLocaleString('it-IT') : ''
+                    })()}
+                  </td>
                 </tr>
               )
             })}
@@ -211,15 +221,24 @@ function Anteprima({
               <td colSpan={6} className="px-1.5 pt-2 text-right">
                 TOTALE ORE DI SERVIZIO:
               </td>
-              <td className="px-1.5 pt-2 text-center">{totOre}</td>
-              <td />
+              <td className="px-1.5 pt-2 text-center">{formattaOre(totOre)}</td>
+              <td colSpan={2} />
             </tr>
+            {totStra > 0 && (
+              <tr className="font-bold text-cielo-800">
+                <td colSpan={6} className="px-1.5 text-right">
+                  DI CUI STRAORDINARIO:
+                </td>
+                <td className="px-1.5 text-center">{formattaOre(totStra)}</td>
+                <td colSpan={2} />
+              </tr>
+            )}
             <tr className="font-bold text-cielo-800">
               <td colSpan={6} className="px-1.5 text-right">
                 TOTALE REPERIBILITÀ:
               </td>
               <td className="px-1.5 text-center">{totRep}</td>
-              <td />
+              <td colSpan={2} />
             </tr>
           </tbody>
         </table>

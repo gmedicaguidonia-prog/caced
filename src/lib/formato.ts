@@ -55,3 +55,8 @@ export function giornoSettimana(iso: string): number {
 }
 
 export const GIORNI_BREVI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
+
+/** Ore in forma breve: 2 → '2', 1.5 → '1,5' (per etichette compatte). */
+export function formattaOre(ore: number): string {
+  return (Number(ore) || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })
+}

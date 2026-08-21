@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { dbLocale } from '../lib/db'
 import type { CalcoloMese, RaccoltaMese, Riconciliazione } from '../lib/db'
 import { useMese } from '../hooks/useMese'
-import { euro, dataIt, meseIt } from '../lib/formato'
+import { formattaOre, euro, dataIt, meseIt } from '../lib/formato'
 
 export default function PrevisionePage() {
   const { mese } = useMese()
@@ -72,7 +72,8 @@ export default function PrevisionePage() {
                   Accredito <b>{dataIt(r.valuta)}</b>
                 </span>
                 <span>
-                  <b>{r.totale.ore} h</b>
+                  <b>{formattaOre(r.totale.ore)} h</b>
+                  {r.totale.oreStraordinario > 0 && <> (di cui {formattaOre(r.totale.oreStraordinario)}h straord.)</>}
                   {r.totale.reperibilita > 0 && <> · {r.totale.reperibilita} rep.</>}
                 </span>
               </div>
@@ -94,7 +95,7 @@ export default function PrevisionePage() {
           <TabellaCalcolo
             titolo={`Totale (${r.postazioni
               .filter((p) => p.calcolo.ore > 0)
-              .map((p) => p.calcolo.ore + 'h')
+              .map((p) => formattaOre(p.calcolo.ore) + 'h')
               .join(' + ')})`}
             c={r.totale}
           />
@@ -111,7 +112,9 @@ export default function PrevisionePage() {
             Tariffe applicate: onorario {euro(r.totale.tariffe.onorario)}/h (ACN) + {euro(r.totale.tariffe.air)}/h
             (A.I.R. Lazio) · reperibilità {euro(r.totale.tariffe.reperibilita)}/turno · superfestivo +
             {euro(r.totale.tariffe.superfestivo)}/h · chilometrico = prezzo di 1 L di benzina per ora (ACN art. 72
-            c.2) · ENPAM {r.totale.tariffe.enpam}% · ritenuta d'acconto {r.totale.tariffe.ra}%.
+            c.2) · ENPAM {r.totale.tariffe.enpam}% · ritenuta d'acconto {r.totale.tariffe.ra}% · straordinario =
+            ore aggiunte alle voci orarie normali (AIR Lazio: «i normali compensi rapportati alla durata del
+            prolungamento del servizio»).
           </p>
         </>
       )}
@@ -184,9 +187,11 @@ function ConfrontoCedolino({ confronto, rata }: { confronto: Riconciliazione | n
 }
 
 function TabellaCalcolo({ titolo, c, compatta }: { titolo: string; c: CalcoloMese; compatta?: boolean }) {
+  const oreSpiegate =
+    c.oreStraordinario > 0 ? `${c.oreTurni}h turni + ${formattaOre(c.oreStraordinario)}h straordinario` : `${formattaOre(c.ore)}h`
   const righe: [string, string, number][] = [
-    [`Onorario ACN (${c.ore}h × ${c.tariffe.onorario.toLocaleString('it-IT')} €)`, 'onorario', c.importi.onorario],
-    [`Incremento A.I.R. (${c.ore}h × ${c.tariffe.air.toLocaleString('it-IT')} €)`, 'air', c.importi.air],
+    [`Onorario ACN (${oreSpiegate} × ${c.tariffe.onorario.toLocaleString('it-IT')} €)`, 'onorario', c.importi.onorario],
+    [`Incremento A.I.R. (${formattaOre(c.ore)}h × ${c.tariffe.air.toLocaleString('it-IT')} €)`, 'air', c.importi.air],
     [
       `Maggiorazione superfestivo (${c.oreSuperfestive}h × ${c.tariffe.superfestivo.toLocaleString('it-IT')} €)`,
       'superfestivo',
@@ -198,7 +203,7 @@ function TabellaCalcolo({ titolo, c, compatta }: { titolo: string; c: CalcoloMes
       c.importi.reperibilita,
     ],
     [
-      `Chilometrico (${c.ore}h × ${c.benzinaPrezzo ? c.benzinaPrezzo.toLocaleString('it-IT') : '?'} €/L)`,
+      `Chilometrico (${formattaOre(c.ore)}h × ${c.benzinaPrezzo ? c.benzinaPrezzo.toLocaleString('it-IT') : '?'} €/L)`,
       'benzina',
       c.importi.benzina,
     ],

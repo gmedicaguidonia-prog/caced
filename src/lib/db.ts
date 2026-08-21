@@ -19,6 +19,11 @@ export type Utente = {
   cognome: string | null
   ruolo: 'admin'
   autorizzato: boolean
+  /** Valorizzato quando la verifica dell'autorizzazione NON ha avuto risposta
+   *  (rete assente, servizio momentaneamente giù): in quel caso `autorizzato`
+   *  è false ma NON significa «escluso dalla lista» — va mostrato un
+   *  «riprova», non un rifiuto. */
+  verificaFallita?: string
 }
 
 export type TipoTurnoCodice = 'nott12' | 'pref_g10' | 'pref22' | 'fest12' | 'fest24'
@@ -50,7 +55,7 @@ export type Postazione = {
   reperibilita: number
 }
 
-export type Turno = { data: string; tipo: TipoTurnoCodice; superfestivo_ore: number; note: string | null }
+export type Turno = { data: string; tipo: TipoTurnoCodice; superfestivo_ore: number; straordinario_ore: number; note: string | null }
 export type Reperibilita = { data: string; quantita: number; note: string | null }
 export type MeseTurni = { turni: Turno[]; reperibilita: Reperibilita[] }
 
@@ -92,7 +97,12 @@ export type Cedolino = {
 
 export type CalcoloMese = {
   mese: string
+  /** Ore totali pagate: turni + straordinario. */
   ore: number
+  /** Ore dei soli turni da tabella. */
+  oreTurni: number
+  /** Ore di prolungamento del servizio (AIR pag. 17: pagate come ore normali). */
+  oreStraordinario: number
   oreSuperfestive: number
   turni: number
   reperibilita: number
@@ -211,7 +221,7 @@ async function turniDelMese(postazioneId: string, mese: string): Promise<MeseTur
   const [t, r] = await Promise.all([
     supabase
       .from('cacca_turni')
-      .select('data, tipo, superfestivo_ore, note')
+      .select('data, tipo, superfestivo_ore, straordinario_ore, note')
       .eq('postazione_id', postazioneId)
       .gte('data', dal)
       .lt('data', al)
@@ -225,7 +235,11 @@ async function turniDelMese(postazioneId: string, mese: string): Promise<MeseTur
       .order('data'),
   ])
   return {
-    turni: (pretendi(t) as Turno[]).map((x) => ({ ...x, superfestivo_ore: n(x.superfestivo_ore) })),
+    turni: (pretendi(t) as Turno[]).map((x) => ({
+      ...x,
+      superfestivo_ore: n(x.superfestivo_ore),
+      straordinario_ore: n(x.straordinario_ore),
+    })),
     reperibilita: (pretendi(r) as Reperibilita[]).map((x) => ({ ...x, quantita: n(x.quantita) })),
   }
 }
@@ -427,19 +441,22 @@ function nomeLeggibile(sede: string): string {
 /** Ogni mese con turni o cedolini deve avere il suo prezzo benzina. */
 async function completaBenzina(): Promise<{ mese: string; prezzo: number; esatto: boolean }[]> {
   const [turniR, cedolini, benzina] = await Promise.all([
-    supabase.from('cacca_turni').select('data, tipo'),
+    supabase.from('cacca_turni').select('data, tipo, straordinario_ore'),
     elencoCedolini(),
     elencoBenzina(),
   ])
-  const turni = pretendi(turniR) as { data: string; tipo: string }[]
+  const turni = pretendi(turniR) as { data: string; tipo: string; straordinario_ore: number }[]
   const mesi = new Set<string>()
   for (const t of turni) mesi.add(t.data.slice(0, 7))
   for (const c of cedolini) mesi.add(motore.mesePiu(c.rata, -1))
 
+  // comprese le ore di straordinario: il chilometrico (voce 11) viene pagato
+  // su TUTTE le ore di attivita', quindi il prezzo ricavato km/ore deve
+  // dividere per lo stesso totale
   const orePerMese = (mese: string) =>
     turni
       .filter((t) => t.data.startsWith(mese))
-      .reduce((acc, t) => acc + (motore.tipoTurno(t.tipo)?.ore ?? 0), 0)
+      .reduce((acc, t) => acc + (motore.tipoTurno(t.tipo)?.ore ?? 0) + (Number(t.straordinario_ore) || 0), 0)
 
   const sistemati: { mese: string; prezzo: number; esatto: boolean }[] = []
   for (const mese of Array.from(mesi).sort()) {
@@ -527,15 +544,20 @@ export const dbLocale = {
         chiediSeAmmesso(),
         supabase.from('cacca_preferenze').select('chiave, valore').in('chiave', ['nome', 'cognome']),
       ])
-      // subito dopo l'accesso la richiesta può partire prima che il nuovo
-      // permesso sia in uso: si riprova una volta, altrimenti si vedrebbe per
-      // sbaglio la schermata «non sei autorizzato»
+      // La risposta può inciampare per due motivi diversi, da non confondere:
+      //  · elenco vuoto subito dopo l'accesso (il permesso nuovo non è ancora
+      //    in uso): si riprova qualche volta con attese crescenti;
+      //  · errore di rete o servizio giù: NON significa «escluso dalla
+      //    lista» — si riprova, e se continua si segnala come problema di
+      //    collegamento (verificaFallita), mai come rifiuto.
       let aut = primoTentativo
-      if (!aut.error && (aut.data ?? []).length === 0) {
-        await new Promise((r) => setTimeout(r, 400))
+      for (const attesa of [400, 900, 1800]) {
+        if (!aut.error && (aut.data ?? []).length > 0) break
+        await new Promise((r) => setTimeout(r, attesa))
         aut = await chiediSeAmmesso()
       }
       const autorizzato = !aut.error && (aut.data ?? []).length > 0
+      const verificaFallita = aut.error ? aut.error.message || 'errore di collegamento' : undefined
       const p = new Map(((prefs.data as { chiave: string; valore: string }[]) ?? []).map((x) => [x.chiave, x.valore]))
       return {
         email,
@@ -543,6 +565,7 @@ export const dbLocale = {
         cognome: p.get('cognome') ?? null,
         ruolo: 'admin',
         autorizzato,
+        verificaFallita,
       }
     },
     async accediConGoogle(): Promise<RispostaDb<null>> {
@@ -641,25 +664,29 @@ export const dbLocale = {
     imposta: (r: {
       data: string
       postazioneId: string
-      tipi: { tipo: TipoTurnoCodice; superfestivoOre?: number | null; note?: string | null }[]
+      tipi: { tipo: TipoTurnoCodice; superfestivoOre?: number | null; straordinarioOre?: number | null; note?: string | null }[]
     }) =>
       esegui(async () => {
         pretendi(
           await supabase.from('cacca_turni').delete().eq('data', r.data).eq('postazione_id', r.postazioneId),
         )
-        const salvati: { tipo: TipoTurnoCodice; superfestivoOre: number }[] = []
+        const salvati: { tipo: TipoTurnoCodice; superfestivoOre: number; straordinarioOre: number }[] = []
         if (r.tipi.length) {
           const righe = r.tipi.map((t) => {
             const sf =
               t.superfestivoOre === null || t.superfestivoOre === undefined
                 ? (motore.oreSuperfestiveAuto(r.data, t.tipo) as number)
                 : Math.max(0, Number(t.superfestivoOre) || 0)
-            salvati.push({ tipo: t.tipo, superfestivoOre: sf })
+            // straordinario: mai proposto in automatico (e' un'eccezione), si
+            // accetta anche la mezz'ora (es. 1,5) e si tiene entro le 24 ore
+            const stra = Math.max(0, Math.min(24, Number(t.straordinarioOre) || 0))
+            salvati.push({ tipo: t.tipo, superfestivoOre: sf, straordinarioOre: stra })
             return {
               data: r.data,
               postazione_id: r.postazioneId,
               tipo: t.tipo,
               superfestivo_ore: sf,
+              straordinario_ore: stra,
               note: t.note ?? null,
             }
           })

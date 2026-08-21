@@ -15,6 +15,8 @@ const INTESTAZIONI: [string, string][] = [
   ['F', 'TURNO FESTIVO 24 ORE'],
   ['G', 'SUPERFESTIVO'],
   ['H', "REPERIBILITA'"],
+  // in coda per non spostare le colonne che l'ufficio gia' conosce
+  ['I', 'STRAORDINARIO (ORE)'],
 ]
 
 type Dati = MeseTurni & {
@@ -41,13 +43,12 @@ function nomeFile(postazione: Postazione, mese: string, estensione: string): str
   return `RIEPILOGO ORE C.A. ${pulito} - ${motore.MESI[m - 1]} ${anno}.${estensione}`
 }
 
-function totali(dati: MeseTurni): { totaleOre: number; totaleRep: number } {
-  const totaleOre = dati.turni.reduce(
-    (acc: number, t) => acc + (motore.tipoTurno(t.tipo)?.ore ?? 0),
-    0,
-  )
+function totali(dati: MeseTurni): { totaleOre: number; totaleRep: number; totaleStra: number } {
+  const totaleStra = dati.turni.reduce((acc: number, t) => acc + (t.straordinario_ore || 0), 0)
+  const totaleOre =
+    dati.turni.reduce((acc: number, t) => acc + (motore.tipoTurno(t.tipo)?.ore ?? 0), 0) + totaleStra
   const totaleRep = dati.reperibilita.reduce((acc: number, r) => acc + r.quantita, 0)
-  return { totaleOre, totaleRep }
+  return { totaleOre, totaleRep, totaleStra }
 }
 
 function perGiorno(dati: MeseTurni) {
@@ -78,7 +79,7 @@ async function scaricaExcel(dati: Dati, nomeFileExcel: string): Promise<void> {
   const ws = wb.addWorksheet(nomeFoglio)
   // colonne larghe quanto basta a leggere ogni intestazione su una riga sola
   // (con un po' di margine: in stampa il foglio viene comunque adattato alla pagina)
-  const larghezze: Record<string, number> = { A: 10, B: 40, C: 32, D: 26, E: 23, F: 23, G: 16, H: 17 }
+  const larghezze: Record<string, number> = { A: 10, B: 40, C: 32, D: 26, E: 23, F: 23, G: 16, H: 17, I: 22 }
   for (const [c, w] of Object.entries(larghezze)) ws.getColumn(c).width = w
 
   ws.getRow(1).height = 24
@@ -127,9 +128,10 @@ async function scaricaExcel(dati: Dati, nomeFileExcel: string): Promise<void> {
     ws.getCell(`A${riga}`).value = g
     ws.getCell(`A${riga}`).font = APTOS(11, false)
     ws.getCell(`A${riga}`).alignment = { horizontal: 'center' }
-    for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']) ws.getCell(`${col}${riga}`).border = GRIGLIA
+    for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']) ws.getCell(`${col}${riga}`).border = GRIGLIA
 
     let superfestivo = false
+    let straGiorno = 0
     for (const turno of turni.get(iso) ?? []) {
       const tipo = motore.tipoTurno(turno.tipo)
       if (!tipo) continue
@@ -139,10 +141,18 @@ async function scaricaExcel(dati: Dati, nomeFileExcel: string): Promise<void> {
       cella.font = APTOS(11, false)
       cella.alignment = { horizontal: 'center' }
       if (turno.superfestivo_ore > 0) superfestivo = true
+      straGiorno += turno.straordinario_ore || 0
     }
     if (superfestivo) {
       const cella = ws.getCell(`G${riga}`)
       cella.value = 'X'
+      cella.font = APTOS(11, false)
+      cella.alignment = { horizontal: 'center' }
+    }
+    if (straGiorno > 0) {
+      totaleOre += straGiorno
+      const cella = ws.getCell(`I${riga}`)
+      cella.value = straGiorno
       cella.font = APTOS(11, false)
       cella.alignment = { horizontal: 'center' }
     }
@@ -161,6 +171,17 @@ async function scaricaExcel(dati: Dati, nomeFileExcel: string): Promise<void> {
   ws.mergeCells('A39:B39')
   ws.getCell('C39').value = totaleOre
   ws.getCell('C39').font = TNR(12, true)
+  const straTotale = (dati.turni as { straordinario_ore?: number }[]).reduce(
+    (acc, t) => acc + (t.straordinario_ore || 0),
+    0,
+  )
+  if (straTotale > 0) {
+    ws.getCell('E39').value = 'DI CUI ORE DI STRAORDINARIO:'
+    ws.getCell('E39').font = TNR(12, true)
+    ws.mergeCells('E39:G39')
+    ws.getCell('H39').value = straTotale
+    ws.getCell('H39').font = TNR(12, true)
+  }
   ws.getCell('A41').value = "TOTALE REPERIBILITA':"
   ws.getCell('A41').font = TNR(12, true)
   ws.mergeCells('A41:B41')
@@ -203,30 +224,36 @@ function componiHtml(dati: Dati): string {
 
   let totaleOre = 0
   let totaleRep = 0
+  let totaleStra = 0
   const righe: string[] = []
   for (let g = 1; g <= giorni; g++) {
     const iso = `${dati.mese}-${String(g).padStart(2, '0')}`
     const turniGiorno = turni.get(iso) ?? []
     let superfestivo = false
+    let straGiorno = 0
     const celle = (motore.TIPI_TURNO as { codice: string; ore: number }[]).map((tipo) => {
       const suo = turniGiorno.find((t) => t.tipo === tipo.codice)
       if (suo) {
         totaleOre += tipo.ore
         if (suo.superfestivo_ore > 0) superfestivo = true
+        straGiorno += suo.straordinario_ore || 0
       }
       return suo ? 'X' : ''
     })
+    totaleOre += straGiorno
+    totaleStra += straGiorno
     const r = rep.get(iso)
     let testoRep = ''
     if (r && r.quantita > 0) {
       totaleRep += r.quantita
       testoRep = r.quantita > 1 ? `${r.quantita}X` : 'X'
     }
-    const vuota = turniGiorno.length === 0 && !testoRep
+    const vuota = turniGiorno.length === 0 && !testoRep && straGiorno === 0
+    const testoStra = straGiorno > 0 ? straGiorno.toLocaleString('it-IT') : ''
     righe.push(
       `<tr class="${vuota ? 'vuota' : ''}"><td class="giorno">${g}</td>` +
         celle.map((c) => `<td>${c}</td>`).join('') +
-        `<td>${superfestivo ? 'X' : ''}</td><td>${testoRep}</td></tr>`,
+        `<td>${superfestivo ? 'X' : ''}</td><td>${testoRep}</td><td>${testoStra}</td></tr>`,
     )
   }
 
@@ -236,10 +263,10 @@ function componiHtml(dati: Dati): string {
   // va a capo né sborda dalla cella
   const colonne =
     '<colgroup>' +
-    [4.4, 24.2, 18.3, 14, 12.2, 12.2, 7.8, 6.9].map((p) => `<col style="width:${p}%">`).join('') +
+    [4.2, 21.3, 16.5, 12.7, 10.9, 10.9, 7.5, 6.7, 9.3].map((p) => `<col style="width:${p}%">`).join('') +
     '</colgroup>'
   const tabella =
-    `<table>${colonne}<thead><tr><th class="giorno">GIORNO</th>${teste}<th>SUPERFESTIVO</th><th>REPERIBILIT&Agrave;</th></tr></thead>` +
+    `<table>${colonne}<thead><tr><th class="giorno">GIORNO</th>${teste}<th>SUPERFESTIVO</th><th>REPERIBILIT&Agrave;</th><th>STRAORDINARIO</th></tr></thead>` +
     `<tbody>${righe.join('')}</tbody></table>`
   const medico = `${dati.medico.cognome.toUpperCase()} ${dati.medico.nome.toUpperCase()}`
 
@@ -261,7 +288,7 @@ function componiHtml(dati: Dati): string {
     table { border-collapse: collapse; table-layout: fixed; font-size: 8pt; width: 100%; }
     th, td { border: 0.3mm solid #9aa7b0; padding: 0.4mm 1mm; text-align: center; }
     /* intestazioni su una riga sola, come nel foglio excel */
-    th { background: #edf3f8; font-size: 6.9pt; line-height: 1.1; vertical-align: middle;
+    th { background: #edf3f8; font-size: 6.6pt; line-height: 1.1; vertical-align: middle;
          font-family: Arial, sans-serif; height: 6.5mm; white-space: nowrap; }
     th.giorno, td.giorno { width: 13mm; }
     td { font-family: Arial, sans-serif; font-weight: bold; height: 3.9mm; line-height: 1; }
@@ -280,6 +307,6 @@ function componiHtml(dati: Dati): string {
       <div class="medico">DR. ${medico}</div>
     </div>
     ${tabella}
-    <p class="totali"><span>TOTALE ORE DI SERVIZIO: ${totaleOre}</span><span>TOTALE REPERIBILIT&Agrave;: ${totaleRep}</span></p>
+    <p class="totali"><span>TOTALE ORE DI SERVIZIO: ${totaleOre.toLocaleString('it-IT')}</span>${totaleStra > 0 ? `<span>DI CUI STRAORDINARIO: ${totaleStra.toLocaleString('it-IT')}</span>` : ''}<span>TOTALE REPERIBILIT&Agrave;: ${totaleRep}</span></p>
   </body></html>`
 }

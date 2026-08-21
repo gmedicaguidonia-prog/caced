@@ -20,9 +20,10 @@ function erroreDallUrl(): string | null {
 }
 
 export default function LoginPage() {
-  const { utente, accediConGoogle, esci } = useAuth()
+  const { utente, accediConGoogle, esci, ricarica } = useAuth()
   const [errore, setErrore] = useState<string | null>(null)
   const [attesa, setAttesa] = useState(false)
+  const [riverifica, setRiverifica] = useState(false)
 
   useEffect(() => {
     const daUrl = erroreDallUrl()
@@ -58,6 +59,14 @@ export default function LoginPage() {
 
   // connesso con Google ma non nella lista degli ammessi
   const nonAutorizzato = utente && !utente.autorizzato
+  // la verifica non ha avuto risposta (rete/servizio): NON è un rifiuto
+  const verificaSaltata = Boolean(nonAutorizzato && utente.verificaFallita)
+
+  async function riprovaVerifica() {
+    setRiverifica(true)
+    await ricarica()
+    setRiverifica(false)
+  }
 
   return (
     <div className="flex min-h-full items-center justify-center bg-cielo-100 p-4">
@@ -70,12 +79,42 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {nonAutorizzato ? (
+        {verificaSaltata ? (
+          <div className="mt-6 space-y-3">
+            <p className="rounded-lg bg-cielo-50 p-3 text-sm leading-relaxed text-cielo-800">
+              Sei entrato come <b>{utente!.email}</b>, ma non sono riuscito a contattare l&apos;archivio
+              per confermare l&apos;autorizzazione. Di solito è la connessione: riprova tra un momento.
+            </p>
+            <p className="rounded-lg bg-cielo-50 px-3 py-2 text-[11px] text-cielo-400">
+              Dettaglio tecnico: {utente!.verificaFallita}
+            </p>
+            <button
+              onClick={() => void riprovaVerifica()}
+              disabled={riverifica}
+              className="w-full rounded-lg bg-cielo-600 py-2.5 text-sm font-medium text-white transition hover:bg-cielo-700 disabled:opacity-50"
+            >
+              {riverifica ? 'Riprovo…' : 'Riprova adesso'}
+            </button>
+            <button
+              onClick={() => void esci()}
+              className="w-full rounded-lg border border-cielo-300 py-2.5 text-sm text-cielo-700 transition hover:bg-cielo-50"
+            >
+              Esci
+            </button>
+          </div>
+        ) : nonAutorizzato ? (
           <div className="mt-6 space-y-3">
             <p className="rounded-lg bg-amber-50 p-3 text-sm leading-relaxed text-amber-800">
               Sei entrato come <b>{utente.email}</b>, ma questo indirizzo non è tra quelli autorizzati a
               usare CACCA.
             </p>
+            <button
+              onClick={() => void riprovaVerifica()}
+              disabled={riverifica}
+              className="w-full rounded-lg border border-cielo-300 py-2.5 text-sm text-cielo-700 transition hover:bg-cielo-50 disabled:opacity-50"
+            >
+              {riverifica ? 'Ricontrollo…' : 'Ricontrolla'}
+            </button>
             <button
               onClick={() => void esci()}
               className="w-full rounded-lg border border-cielo-300 py-2.5 text-sm text-cielo-700 transition hover:bg-cielo-50"

@@ -4,7 +4,7 @@ import type { MeseTurni, Postazione, TipoTurnoCodice, Turno } from '../lib/db'
 import { useToast } from '../hooks/useToast'
 import { useEscape } from '../hooks/useEscape'
 import { useMese } from '../hooks/useMese'
-import { GIORNI_BREVI, giorniNelMese, giornoSettimana, meseIt } from '../lib/formato'
+import { GIORNI_BREVI, formattaOre, giorniNelMese, giornoSettimana, meseIt } from '../lib/formato'
 
 const COLORE_TIPO: Record<TipoTurnoCodice, string> = {
   nott12: 'bg-indigo-100 text-indigo-800 border-indigo-300',
@@ -98,7 +98,9 @@ function Calendario({
     return { turni: t, rep: r }
   }, [dati])
 
-  const ore = dati.turni.reduce((acc, t) => acc + (TIPI_TURNO.find((x) => x.codice === t.tipo)?.ore ?? 0), 0)
+  const oreTurni = dati.turni.reduce((acc, t) => acc + (TIPI_TURNO.find((x) => x.codice === t.tipo)?.ore ?? 0), 0)
+  const stra = dati.turni.reduce((acc, t) => acc + (t.straordinario_ore || 0), 0)
+  const ore = oreTurni + stra
   const sf = dati.turni.reduce((acc, t) => acc + (t.superfestivo_ore || 0), 0)
   const rep = dati.reperibilita.reduce((acc, r) => acc + r.quantita, 0)
 
@@ -112,7 +114,8 @@ function Calendario({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-semibold text-cielo-800">{postazione.nome}</h2>
         <p className="text-sm text-cielo-600">
-          <b>{ore} ore</b> · {rep} reperibilità{sf > 0 && <> · ★ {sf}h superfestive</>}
+          <b>{formattaOre(ore)} ore</b>{stra > 0 && <> (di cui {formattaOre(stra)}h straordinario)</>} · {rep} reperibilità
+          {sf > 0 && <> · ★ {sf}h superfestive</>}
         </p>
       </div>
 
@@ -148,6 +151,7 @@ function Calendario({
                   >
                     {tipo.breve}
                     {turno.superfestivo_ore > 0 && ' ★'}
+                    {turno.straordinario_ore > 0 && ` +${formattaOre(turno.straordinario_ore)}h`}
                   </span>
                 )
               })}
@@ -180,9 +184,11 @@ function ModaleGiorno({
   const esistenti = dati.turni.filter((t) => t.data === selezione.data)
   const repEsistente = dati.reperibilita.find((r) => r.data === selezione.data) ?? null
 
-  // tipo → ore superfestive (presente nella mappa = turno selezionato)
-  const [scelti, setScelti] = useState<Partial<Record<TipoTurnoCodice, number>>>(() =>
-    Object.fromEntries(esistenti.map((t) => [t.tipo, t.superfestivo_ore])),
+  // tipo → { sf, stra } (presente nella mappa = turno selezionato)
+  const [scelti, setScelti] = useState<Partial<Record<TipoTurnoCodice, { sf: number; stra: number }>>>(() =>
+    Object.fromEntries(
+      esistenti.map((t) => [t.tipo, { sf: t.superfestivo_ore, stra: t.straordinario_ore }]),
+    ),
   )
   const [rep, setRep] = useState(repEsistente?.quantita ?? 0)
   const [attesa, setAttesa] = useState(false)
@@ -193,13 +199,14 @@ function ModaleGiorno({
         const { [tipo]: _via, ...resto } = s
         return resto
       }
-      return { ...s, [tipo]: 0 }
+      return { ...s, [tipo]: { sf: 0, stra: 0 } }
     })
     // proposta automatica delle ore superfestive per il tipo appena acceso
+    // (lo straordinario invece non si propone mai: è un'eccezione)
     if (!(tipo in scelti)) {
       const { data } = await dbLocale.turni.propostaSuperfestivo(selezione.data, tipo)
       if (data !== null && data !== undefined) {
-        setScelti((s) => (tipo in s ? { ...s, [tipo]: data } : s))
+        setScelti((s) => (tipo in s ? { ...s, [tipo]: { sf: data, stra: s[tipo]?.stra ?? 0 } } : s))
       }
     }
   }
@@ -211,9 +218,10 @@ function ModaleGiorno({
     const r1 = await dbLocale.turni.imposta({
       data: selezione.data,
       postazioneId: selezione.postazione.id,
-      tipi: Object.entries(scelti).map(([tipo, sf]) => ({
+      tipi: Object.entries(scelti).map(([tipo, v]) => ({
         tipo: tipo as TipoTurnoCodice,
-        superfestivoOre: sf,
+        superfestivoOre: v.sf,
+        straordinarioOre: v.stra,
       })),
     })
     const r2 = await dbLocale.turni.repImposta({
@@ -256,22 +264,50 @@ function ModaleGiorno({
                   <span className="text-xs text-cielo-500">col. {t.colonna}</span>
                 </label>
                 {attivo && (
-                  <label className="mt-1.5 flex items-center gap-2 pl-6 text-xs text-cielo-700">
-                    ★ ore superfestive (+15 €/h):
-                    <input
-                      type="number"
-                      min={0}
-                      max={24}
-                      value={scelti[t.codice] ?? 0}
-                      onChange={(e) =>
-                        setScelti((s) => ({
-                          ...s,
-                          [t.codice]: Math.max(0, Math.min(24, Number(e.target.value) || 0)),
-                        }))
-                      }
-                      className="w-16 rounded-lg border border-cielo-300 bg-white px-2 py-0.5 text-xs"
-                    />
-                  </label>
+                  <div className="mt-1.5 space-y-1 pl-6">
+                    <label className="flex items-center gap-2 text-xs text-cielo-700">
+                      ★ ore superfestive (+15 €/h):
+                      <input
+                        type="number"
+                        min={0}
+                        max={24}
+                        value={scelti[t.codice]?.sf ?? 0}
+                        onChange={(e) =>
+                          setScelti((s) => ({
+                            ...s,
+                            [t.codice]: {
+                              sf: Math.max(0, Math.min(24, Number(e.target.value) || 0)),
+                              stra: s[t.codice]?.stra ?? 0,
+                            },
+                          }))
+                        }
+                        className="w-16 rounded-lg border border-cielo-300 bg-white px-2 py-0.5 text-xs"
+                      />
+                    </label>
+                    <label
+                      className="flex items-center gap-2 text-xs text-cielo-700"
+                      title="Prolungamento del servizio oltre la fine del turno (es. chiamata sul finale): pagato come ore normali — AIR Lazio, «i normali compensi rapportati alla durata del prolungamento»"
+                    >
+                      ⏱ ore di straordinario:
+                      <input
+                        type="number"
+                        min={0}
+                        max={24}
+                        step={0.5}
+                        value={scelti[t.codice]?.stra ?? 0}
+                        onChange={(e) =>
+                          setScelti((s) => ({
+                            ...s,
+                            [t.codice]: {
+                              sf: s[t.codice]?.sf ?? 0,
+                              stra: Math.max(0, Math.min(24, Number(e.target.value) || 0)),
+                            },
+                          }))
+                        }
+                        className="w-16 rounded-lg border border-cielo-300 bg-white px-2 py-0.5 text-xs"
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
             )
