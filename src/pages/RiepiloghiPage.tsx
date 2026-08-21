@@ -63,7 +63,7 @@ export default function RiepiloghiPage() {
       <h1 className="text-2xl font-bold tracking-tight text-cielo-800">Riepilogo turni — {meseIt(mese)}</h1>
 
       <p className="text-sm text-cielo-600">
-        L'anteprima riproduce il modello che l'ufficio conosce (colonne B–H, X sui giorni, totali). I
+        L'anteprima riproduce il modello che l'ufficio conosce (colonne B–H, X sui giorni, totali), con in coda la colonna delle ore di straordinario. I
         pulsanti creano il file da allegare alla mail, in Excel o in PDF.
       </p>
 
