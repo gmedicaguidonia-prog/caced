@@ -19,12 +19,16 @@ export type Utente = {
   cognome: string | null
   ruolo: 'admin'
   autorizzato: boolean
+  /** true solo per chi amministra la lista degli ammessi (form «Crea nuovo utente»). */
+  admin: boolean
   /** Valorizzato quando la verifica dell'autorizzazione NON ha avuto risposta
    *  (rete assente, servizio momentaneamente giù): in quel caso `autorizzato`
    *  è false ma NON significa «escluso dalla lista» — va mostrato un
    *  «riprova», non un rifiuto. */
   verificaFallita?: string
 }
+
+export type Autorizzato = { email: string; nome: string | null; cognome: string | null; admin: boolean; creato_il: string }
 
 export type TipoTurnoCodice = 'nott12' | 'pref_g10' | 'pref22' | 'fest12' | 'fest24'
 
@@ -539,7 +543,7 @@ export const dbLocale = {
       const { data } = await supabase.auth.getSession()
       const email = data.session?.user?.email?.toLowerCase()
       if (!email) return null
-      const chiediSeAmmesso = () => supabase.from('cacca_autorizzati').select('email').limit(1)
+      const chiediSeAmmesso = () => supabase.from('cacca_autorizzati').select('email, admin').eq('email', email).limit(1)
       const [primoTentativo, prefs] = await Promise.all([
         chiediSeAmmesso(),
         supabase.from('cacca_preferenze').select('chiave, valore').in('chiave', ['nome', 'cognome']),
@@ -556,7 +560,8 @@ export const dbLocale = {
         await new Promise((r) => setTimeout(r, attesa))
         aut = await chiediSeAmmesso()
       }
-      const autorizzato = !aut.error && (aut.data ?? []).length > 0
+      const miaRiga = ((aut.data ?? []) as { email: string; admin?: boolean }[])[0]
+      const autorizzato = !aut.error && Boolean(miaRiga)
       const verificaFallita = aut.error ? aut.error.message || 'errore di collegamento' : undefined
       const p = new Map(((prefs.data as { chiave: string; valore: string }[]) ?? []).map((x) => [x.chiave, x.valore]))
       return {
@@ -565,6 +570,7 @@ export const dbLocale = {
         cognome: p.get('cognome') ?? null,
         ruolo: 'admin',
         autorizzato,
+        admin: Boolean(miaRiga?.admin),
         verificaFallita,
       }
     },
@@ -655,6 +661,68 @@ export const dbLocale = {
           )
         }
         pretendi(await supabase.from('cacca_postazioni').delete().eq('id', id))
+        return null
+      }),
+  },
+
+  autorizzati: {
+    /** Lista completa (le policy la mostrano solo all'admin). */
+    elenco: () =>
+      esegui(async () => {
+        const r = await supabase
+          .from('cacca_autorizzati')
+          .select('email, nome, cognome, admin, creato_il')
+          .order('admin', { ascending: false })
+          .order('cognome')
+          .order('nome')
+        return pretendi(r) as Autorizzato[]
+      }),
+    /** Aggiunge un medico alla lista degli ammessi. Controlli:
+     *  campi ben scritti, email valida, niente doppioni di email o di
+     *  nome+cognome (confronto senza maiuscole/accenti). */
+    crea: (r: { nome: string; cognome: string; email: string }) =>
+      esegui(async () => {
+        const pulisci = (t: string) => t.trim().replace(/\s+/g, ' ')
+        const nome = pulisci(r.nome)
+        const cognome = pulisci(r.cognome)
+        const email = r.email.trim().toLowerCase()
+        // nomi: solo lettere (accenti compresi), spazi, apostrofi e trattini
+        const reNome = /^[a-zà-öø-ýA-ZÀ-ÖØ-Ý][a-zà-öø-ýA-ZÀ-ÖØ-Ý' -]*$/
+        if (nome.length < 2 || !reNome.test(nome)) {
+          throw new Error('Il nome non sembra scritto bene: usa solo lettere (minimo 2).')
+        }
+        if (cognome.length < 2 || !reNome.test(cognome)) {
+          throw new Error('Il cognome non sembra scritto bene: usa solo lettere (minimo 2).')
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          throw new Error("L'indirizzo email non è valido (esempio: nome.cognome@gmail.com).")
+        }
+        // doppioni: stessa email o stesso medico gia' in lista
+        const attuali = pretendi(
+          await supabase.from('cacca_autorizzati').select('email, nome, cognome'),
+        ) as { email: string; nome: string | null; cognome: string | null }[]
+        const piatto = (t: string | null) =>
+          (t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+        if (attuali.some((a) => a.email.toLowerCase() === email)) {
+          throw new Error(`${email} è già tra gli autorizzati.`)
+        }
+        const doppione = attuali.find(
+          (a) => piatto(a.nome) === piatto(nome) && piatto(a.cognome) === piatto(cognome),
+        )
+        if (doppione) {
+          throw new Error(
+            `${nome} ${cognome} è già in lista con l'indirizzo ${doppione.email}: non aggiungo lo stesso medico due volte.`,
+          )
+        }
+        pretendi(await supabase.from('cacca_autorizzati').insert({ email, nome, cognome }))
+        return { email, nome, cognome }
+      }),
+    /** Toglie un medico dalla lista (la policy impedisce di togliere se stessi). */
+    rimuovi: (email: string) =>
+      esegui(async () => {
+        const r = await supabase.from('cacca_autorizzati').delete().eq('email', email).select('email')
+        const via = pretendi(r) as { email: string }[]
+        if (via.length === 0) throw new Error('Nessuna riga rimossa (non puoi togliere te stesso).')
         return null
       }),
   },
