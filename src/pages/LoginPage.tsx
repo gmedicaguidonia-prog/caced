@@ -146,8 +146,9 @@ export default function LoginPage() {
               </button>
             )}
             <p className="pt-1 text-center text-[11px] leading-relaxed text-cielo-400">
-              I cedolini PDF vengono salvati nella cartella «DATI CACCA» del tuo Google Drive; turni e
-              calcoli in un archivio riservato al tuo indirizzo.
+              Google ti chiederà tutto in una volta sola: chi sei e il permesso per la cartella
+              «DATI CACCA» del tuo Drive, dove finiscono i PDF dei cedolini. Turni e calcoli vivono in
+              un archivio riservato al tuo indirizzo.
             </p>
           </div>
         )}

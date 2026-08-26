@@ -4,7 +4,8 @@
 
 import { GOOGLE_CLIENT_ID } from './supabase'
 
-const AMBITO = 'https://www.googleapis.com/auth/drive.file'
+export const AMBITO_DRIVE = 'https://www.googleapis.com/auth/drive.file'
+const AMBITO = AMBITO_DRIVE
 const NOME_CARTELLA = 'DATI CACCA'
 const LS_TOKEN = 'cacca_drive_token'
 
@@ -42,6 +43,25 @@ function caricaScriptGoogle(): Promise<void> {
     })
   }
   return scriptCaricato
+}
+
+/** Mette in cassaforte un token Drive gia' ottenuto (es. quello che Google
+ *  consegna al login): il primo caricamento non apre nessuna finestra. */
+export function ricordaTokenDrive(token: string, durataSecondi = 3000): void {
+  try {
+    sessionStorage.setItem(LS_TOKEN, JSON.stringify({ token, scade: Date.now() + durataSecondi * 1000 }))
+  } catch {
+    /* senza memoria di sessione pazienza */
+  }
+}
+
+/** Butta il token in cassaforte (es. dopo un 401: revocato o scaduto male). */
+export function scordaTokenDrive(): void {
+  try {
+    sessionStorage.removeItem(LS_TOKEN)
+  } catch {
+    /* niente */
+  }
 }
 
 function tokenSalvato(): string | null {
@@ -96,11 +116,20 @@ export async function tokenDrive(): Promise<string> {
 }
 
 async function driveApi(percorso: string, opzioni: RequestInit = {}): Promise<Response> {
-  const token = await tokenDrive()
-  const r = await fetch(`https://www.googleapis.com/${percorso}`, {
-    ...opzioni,
-    headers: { Authorization: `Bearer ${token}`, ...(opzioni.headers || {}) },
-  })
+  const chiama = async () => {
+    const token = await tokenDrive()
+    return fetch(`https://www.googleapis.com/${percorso}`, {
+      ...opzioni,
+      headers: { Authorization: `Bearer ${token}`, ...(opzioni.headers || {}) },
+    })
+  }
+  let r = await chiama()
+  // token in cassaforte scaduto o revocato: si butta e si riprova UNA volta
+  // (la seconda richiesta passa dal permesso gia' concesso, senza domande)
+  if (r.status === 401) {
+    scordaTokenDrive()
+    r = await chiama()
+  }
   if (!r.ok) {
     const testo = await r.text()
     throw new Error(`Google Drive: errore ${r.status} — ${testo.slice(0, 160)}`)

@@ -6,7 +6,7 @@
 // registra su globalThis (vedi src/lib/motore.cjs).
 import './motore.cjs'
 import { supabase } from './supabase'
-import { anteprimaDrive, caricaSuDrive, cartellaDatiCacca, linkCartellaDrive, linkDrive } from './drive'
+import { AMBITO_DRIVE, anteprimaDrive, caricaSuDrive, cartellaDatiCacca, linkCartellaDrive, linkDrive } from './drive'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const motore: any = (globalThis as { __motoreCACCA?: unknown }).__motoreCACCA
@@ -579,7 +579,14 @@ export const dbLocale = {
         const redirectTo = window.location.origin + window.location.pathname
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
-          options: { redirectTo, queryParams: { prompt: 'select_account' } },
+          options: {
+            redirectTo,
+            // TUTTI i permessi in una volta sola: identita' + cartella Drive
+            // dell'app (drive.file = solo i file creati da CACCA). Cosi' al
+            // primo cedolino non compare una seconda richiesta.
+            scopes: AMBITO_DRIVE,
+            queryParams: { prompt: 'select_account', include_granted_scopes: 'true' },
+          },
         })
         if (error) throw new Error(error.message)
         return null

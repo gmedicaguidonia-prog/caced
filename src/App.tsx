@@ -5,6 +5,7 @@ import { MeseProvider } from './hooks/useMese'
 import { ToastProvider } from './hooks/useToast'
 import Layout from './components/Layout'
 import AggiornaWebBanner from './components/AggiornaWebBanner'
+import PermessiGoogle from './components/PermessiGoogle'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import TurniPage from './pages/TurniPage'
@@ -39,6 +40,7 @@ function Contenuto() {
 
   return (
     <MeseProvider>
+      <PermessiGoogle />
       <HashRouter>
         <Routes>
           <Route element={<Layout />}>
