@@ -47,6 +47,12 @@ export const TIPI_TURNO: {
   { codice: 'fest24', nome: 'Festivo 24 ore', breve: 'Festivo 24h', ore: 24, colonna: 'F' },
 ]
 
+/** Riconoscimento PNRR/DM77 della postazione (AIR 2026, art. 13.b):
+ *  'si' = struttura riconosciuta (+13,62 €/h dai turni di ottobre 2026),
+ *  'no' = non riconosciuta, 'boh' = in attesa della determina ASL
+ *  (il previsionale mostra entrambi gli scenari). */
+export type StatoPnrr = 'si' | 'no' | 'boh'
+
 export type Postazione = {
   id: string
   nome: string
@@ -55,6 +61,7 @@ export type Postazione = {
   ordine: number
   attiva: boolean
   sede_cedolino: string | null
+  pnrr: StatoPnrr
   turni: number
   reperibilita: number
 }
@@ -108,11 +115,15 @@ export type CalcoloMese = {
   /** Ore di prolungamento del servizio (AIR pag. 17: pagate come ore normali). */
   oreStraordinario: number
   oreSuperfestive: number
+  /** Ore pagate con la maggiorazione PNRR/DM77 (0 fino ai turni di settembre 2026). */
+  orePnrr: number
+  /** Ore di postazioni col riconoscimento ancora incerto ('boh'). */
+  orePnrrIncerte: number
   turni: number
   reperibilita: number
-  tariffe: { onorario: number; air: number; reperibilita: number; superfestivo: number; enpam: number; ra: number }
+  tariffe: { onorario: number; air: number; reperibilita: number; superfestivo: number; pnrr: number; enpam: number; ra: number }
   benzinaPrezzo: number | null
-  importi: { onorario: number; air: number; superfestivo: number; reperibilita: number; benzina: number }
+  importi: { onorario: number; air: number; superfestivo: number; pnrr: number; reperibilita: number; benzina: number }
   lordo: number
   enpam: number
   imponibile: number
@@ -124,7 +135,14 @@ export type RaccoltaMese = {
   mese: string
   etichetta: string
   postazioni: { postazione: Postazione; calcolo: CalcoloMese }[]
+  /** Scenario prudente: le postazioni col PNRR incerto ('boh') SENZA maggiorazione. */
   totale: CalcoloMese
+  /** Presente solo se ci sono ore incerte: stesso mese con la maggiorazione
+   *  riconosciuta anche alle postazioni 'boh'. */
+  totaleSePnrr?: CalcoloMese
+  /** Per i turni di ott–dic 2026: quanto avrebbe reso il vecchio contratto
+   *  (ACN+AIR 5,00, reperibilità 35,09), per il confronto. */
+  vecchioEquivalente?: { lordo: number; netto: number }
   benzina: { prezzo: number | null; stimato: boolean; da?: string }
   rata: string
   valuta: string
@@ -163,6 +181,8 @@ export type Riconciliazione = {
   anomalieAperte: number
   anomalieRisolte: boolean
   prezzoBenzinaRicavato: number | null
+  /** Voci del cedolino con codice NoiPA mai visto (attese col nuovo AIR). */
+  vociSconosciute?: VoceCedolino[]
   suggerimenti: SuggerimentiCedolino | null
   avvisoDrive?: string
 }
@@ -214,6 +234,7 @@ async function elencoPostazioni(): Promise<Postazione[]> {
     ordine: n(x.ordine),
     attiva: Boolean(x.attiva),
     sede_cedolino: (x.sede_cedolino as string) ?? null,
+    pnrr: ((x.pnrr as string) === 'si' || (x.pnrr as string) === 'no' ? (x.pnrr as StatoPnrr) : 'boh'),
     turni: contaT.get(String(x.id)) ?? 0,
     reperibilita: contaR.get(String(x.id)) ?? 0,
   }))
@@ -258,6 +279,10 @@ const TARIFFE_BASE = [
   { tipo: 'superfestivo_ora', dal: '2000-01', valore: 15, note: 'Maggiorazione festività di particolare importanza (AIR art. 23)' },
   { tipo: 'enpam_pct', dal: '2000-01', valore: 15.625, note: 'ENPAM Cassa Pensione a carico del medico' },
   { tipo: 'ra_pct', dal: '2000-01', valore: 20, note: "Ritenuta d'acconto sull'imponibile" },
+  // ── nuovo AIR (DGR 610/2026), turni dal 1° ottobre 2026 ──
+  { tipo: 'air_ora', dal: '2026-10', valore: 0, note: 'Abrogato dal nuovo AIR (DGR 610/2026, in vigore 1/10/2026): assorbito nelle nuove voci' },
+  { tipo: 'reperibilita', dal: '2026-10', valore: 50, note: 'AIR 2026: forfait 50 euro = 1h30 (1h prima + 30min dopo inizio turno); se attivata si somma il servizio effettivo' },
+  { tipo: 'pnrr_ora', dal: '2026-10', valore: 13.62, note: 'Maggiorazione PNRR/DM77 art. 13.b AIR 2026: solo turni in CdC/OdC/UCA o strutture riconosciute dalla ASL' },
 ]
 let seminaTariffe: Promise<void> | null = null
 
@@ -325,15 +350,18 @@ async function raccogliMese(mese: string): Promise<RaccoltaMese> {
   const benzina = prezzoBenzinaDa(benzinaTutta, mese)
   const attive = postazioni.filter((p) => p.attiva)
   const dettagli: { postazione: Postazione; calcolo: CalcoloMese }[] = []
-  let turniTotali: Turno[] = []
+  let turniTotali: (Turno & { pnrr: StatoPnrr })[] = []
   let repTotali: Reperibilita[] = []
   for (const p of attive) {
     const { turni, reperibilita } = await turniDelMese(p.id, mese)
-    turniTotali = turniTotali.concat(turni)
+    // ogni turno porta con sé lo stato PNRR della sua postazione: è quello
+    // che decide la maggiorazione da 13,62 €/h sui turni da ottobre 2026
+    const marcati = turni.map((t) => ({ ...t, pnrr: p.pnrr }))
+    turniTotali = turniTotali.concat(marcati)
     repTotali = repTotali.concat(reperibilita)
     dettagli.push({
       postazione: p,
-      calcolo: motore.calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo: benzina.prezzo }),
+      calcolo: motore.calcolaMese({ mese, turni: marcati, reperibilita, tariffe, benzinaPrezzo: benzina.prezzo }),
     })
   }
   const totale = motore.calcolaMese({
@@ -342,13 +370,43 @@ async function raccogliMese(mese: string): Promise<RaccoltaMese> {
     reperibilita: repTotali,
     tariffe,
     benzinaPrezzo: benzina.prezzo,
-  })
+  }) as CalcoloMese
+  // scenario alternativo solo se qualche postazione è ancora 'boh'
+  const totaleSePnrr =
+    totale.orePnrrIncerte > 0
+      ? (motore.calcolaMese({
+          mese,
+          turni: turniTotali,
+          reperibilita: repTotali,
+          tariffe,
+          benzinaPrezzo: benzina.prezzo,
+          bohCome: 'si',
+        }) as CalcoloMese)
+      : undefined
+  // confronto col vecchio contratto per i primi mesi del nuovo (ott–dic 2026):
+  // stesse ore, tariffe congelate a settembre 2026
+  let vecchioEquivalente: { lordo: number; netto: number } | undefined
+  if (mese >= '2026-10' && mese <= '2026-12' && (totale.ore > 0 || totale.reperibilita > 0)) {
+    const congelate = ['onorario', 'air_ora', 'reperibilita', 'superfestivo_ora', 'enpam_pct', 'ra_pct'].map(
+      (tipo) => ({ tipo, dal: '2000-01', valore: motore.tariffaVigente(tariffe, tipo, '2026-09') as number }),
+    )
+    const v = motore.calcolaMese({
+      mese,
+      turni: turniTotali,
+      reperibilita: repTotali,
+      tariffe: congelate,
+      benzinaPrezzo: benzina.prezzo,
+    }) as CalcoloMese
+    vecchioEquivalente = { lordo: v.lordo, netto: v.netto }
+  }
   const rata = motore.rataDelMese(mese)
   return {
     mese,
     etichetta: motore.etichettaMese(mese),
     postazioni: dettagli,
     totale,
+    totaleSePnrr,
+    vecchioEquivalente,
     benzina,
     rata,
     valuta: motore.dataValuta(rata),
@@ -371,7 +429,7 @@ async function riconciliaCedolino(ced: Cedolino): Promise<Riconciliazione> {
     'Onorario (voce 40)': '40',
     'Incremento A.I.R. (voce 45)': '45',
     'Reperibilità (voce 27)': '27',
-    'Superfestivo (voce 46)': '46',
+    'Festività maggiorate (voce 46)': '46',
   }
   const rifAttesi = [rifDiMese(meseLavoro), rifDiMese(ced.rata)]
   const successivi = (await elencoCedolini()).filter((c) => c.rata > ced.rata).sort((a, b) => (a.rata < b.rata ? -1 : 1))
@@ -402,6 +460,7 @@ async function riconciliaCedolino(ced: Cedolino): Promise<Riconciliazione> {
     anomalieAperte: ced.anomalie_risolte ? 0 : anomalie,
     anomalieRisolte: ced.anomalie_risolte,
     prezzoBenzinaRicavato: esito.prezzoBenzinaRicavato ?? null,
+    vociSconosciute: (esito.vociSconosciute as VoceCedolino[] | undefined) ?? [],
     suggerimenti: await suggerimentiDaCedolino(ced),
   }
 }
@@ -644,6 +703,7 @@ export const dbLocale = {
           ordine: r.ordine ?? 0,
           attiva: r.attiva !== false,
           sede_cedolino: r.sede_cedolino?.trim() || null,
+          pnrr: r.pnrr === 'si' || r.pnrr === 'no' ? r.pnrr : 'boh',
         }
         if (r.id) {
           pretendi(await supabase.from('cacca_postazioni').update(campi).eq('id', r.id))

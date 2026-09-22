@@ -155,10 +155,16 @@ export default function HomePage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-cielo-500">
                 Totale previsto <span className="normal-case">(in pagamento {aMeseIt(raccolta.rata)})</span>
               </p>
-              <p className="mt-1 text-2xl font-bold text-cielo-800">{euro(raccolta.totale.netto)}</p>
+              <p className="mt-1 text-2xl font-bold text-cielo-800">
+                {euro(raccolta.totale.netto)}
+                {raccolta.totaleSePnrr && (
+                  <span className="text-base font-semibold text-amber-700"> – {euro(raccolta.totaleSePnrr.netto)}</span>
+                )}
+              </p>
               <p className="text-xs text-cielo-600">
                 netto stimato · valuta {dataIt(raccolta.valuta)}
                 {raccolta.benzina.stimato && ' · benzina stimata'}
+                {raccolta.totaleSePnrr && ' · forbice in attesa della decisione PNRR della ASL'}
               </p>
               {(() => {
                 const ced = cedolini.find((c) => c.rata === raccolta.rata)

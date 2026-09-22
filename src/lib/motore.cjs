@@ -4,6 +4,17 @@
 // stessi arrotondamenti di NoiPA, lettura del testo dei cedolini e confronto
 // tra atteso e pagato. Tutto testato nello smoke test contro i cedolini veri.
 //
+// DUE REGIMI (docs/DGR_610_23_07_2026.pdf + air_lazio_2026_config.json):
+//  · fino ai turni di SETTEMBRE 2026: ACN 25,10/h + A.I.R. 5,00/h,
+//    reperibilità 35,09;
+//  · dai turni di OTTOBRE 2026 (AIR 2026, DGR 610 del 23/07/2026): l'A.I.R.
+//    5,00 è abrogato, reperibilità 50,00 (forfait 1h30), e per i turni nelle
+//    strutture PNRR/DM77 riconosciute (CdC, OdC, UCA…) si aggiunge la
+//    maggiorazione di 13,62/h. Festività maggiorate: stesso calendario e
+//    stessi 15,00/h di prima. Prolungamento (straordinario): stessa regola.
+// Il cambio è tutto nelle tariffe con decorrenza (dal = mese di LAVORO):
+// il regime si sceglie per data del turno, non per data del cedolino.
+//
 // Modulo "universale": CommonJS per Electron (require) e variabile globale
 // __motoreCACCA per l'anteprima browser di sviluppo (Vite serve i .cjs come
 // ESM senza interoperabilità: senza questo accorgimento l'anteprima si rompe).
@@ -206,18 +217,32 @@ function tariffaVigente(tariffe, tipo, meseLavoro) {
  * (voce 11). Sul cedolino compariranno quindi come ore in più nelle voci
  * ordinarie, non come voce separata.
  */
-function calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo }) {
+function calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo, bohCome }) {
+  // bohCome: come trattare i turni delle postazioni col riconoscimento
+  // PNRR/DM77 ancora incerto ('boh'): 'no' = scenario prudente (default),
+  // 'si' = scenario con la maggiorazione riconosciuta.
+  const bohVale = bohCome === 'si'
   let oreTurni = 0
   let oreStra = 0
   let oreSf = 0
+  let orePnrr = 0
+  let orePnrrIncerte = 0
   let nTurni = 0
   for (const t of turni || []) {
     const tipo = tipoTurno(t.tipo)
     if (!tipo) continue
+    const oreDelTurno = tipo.ore + (Number(t.straordinario_ore) || 0)
     oreTurni += tipo.ore
     nTurni += 1
     oreSf += Number(t.superfestivo_ore) || 0
     oreStra += Number(t.straordinario_ore) || 0
+    // la maggiorazione segue la postazione del turno (prolungamento compreso:
+    // «compensi normali» = la tariffa oraria effettiva di quel servizio)
+    if (t.pnrr === 'si') orePnrr += oreDelTurno
+    else if (t.pnrr === 'boh') {
+      orePnrrIncerte += oreDelTurno
+      if (bohVale) orePnrr += oreDelTurno
+    }
   }
   const ore = round2(oreTurni + oreStra)
   let rep = 0
@@ -227,16 +252,18 @@ function calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo }) {
   const tAir = tariffaVigente(tariffe, 'air_ora', mese)
   const tRep = tariffaVigente(tariffe, 'reperibilita', mese)
   const tSf = tariffaVigente(tariffe, 'superfestivo_ora', mese)
+  const tPnrr = tariffaVigente(tariffe, 'pnrr_ora', mese) // 0 fino a set 2026
   const pctEnpam = tariffaVigente(tariffe, 'enpam_pct', mese)
   const pctRa = tariffaVigente(tariffe, 'ra_pct', mese)
 
   const onorario = round2(ore * tOnorario)
   const air = round2(ore * tAir)
   const superfestivo = round2(oreSf * tSf)
+  const pnrr = round2((tPnrr ? orePnrr : 0) * tPnrr)
   const repImporto = round2(rep * tRep)
   const benzina = benzinaPrezzo ? round2(ore * Number(benzinaPrezzo)) : 0
 
-  const lordo = round2(onorario + air + superfestivo + repImporto + benzina)
+  const lordo = round2(onorario + air + superfestivo + pnrr + repImporto + benzina)
   const enpam = round2((lordo * pctEnpam) / 100)
   const imponibile = round2(lordo - enpam)
   const ritenuta = round2((imponibile * pctRa) / 100)
@@ -248,11 +275,13 @@ function calcolaMese({ mese, turni, reperibilita, tariffe, benzinaPrezzo }) {
     oreTurni,
     oreStraordinario: oreStra,
     oreSuperfestive: oreSf,
+    orePnrr: tPnrr ? orePnrr : 0,
+    orePnrrIncerte: tPnrr ? orePnrrIncerte : 0,
     turni: nTurni,
     reperibilita: rep,
-    tariffe: { onorario: tOnorario, air: tAir, reperibilita: tRep, superfestivo: tSf, enpam: pctEnpam, ra: pctRa },
+    tariffe: { onorario: tOnorario, air: tAir, reperibilita: tRep, superfestivo: tSf, pnrr: tPnrr, enpam: pctEnpam, ra: pctRa },
     benzinaPrezzo: benzinaPrezzo ? Number(benzinaPrezzo) : null,
-    importi: { onorario, air, superfestivo, reperibilita: repImporto, benzina },
+    importi: { onorario, air, superfestivo, pnrr, reperibilita: repImporto, benzina },
     lordo,
     enpam,
     imponibile,
@@ -507,6 +536,21 @@ function riconcilia(atteso, cedolino) {
     if (v.rif) arretrati.push(v)
   }
 
+  // Voci con codice NON conosciuto: col nuovo AIR (turni da ottobre 2026)
+  // NoiPA userà codici nuovi che ancora non conosciamo. Si individuano per
+  // importo unitario (Uni) o, in mancanza, per importo/ore: 13,62 = PNRR,
+  // 15,00 = festività maggiorate, 50,00 = reperibilità nuova.
+  const CODICI_NOTI = new Set(['11', '27', '40', '45', '46', '86A'])
+  const sconosciute = (cedolino.voci || []).filter((v) => !v.rif && !CODICI_NOTI.has(v.codice))
+  const pareUnitario = (v, unitario) => {
+    if (v.uni != null && Math.abs(v.uni - unitario) < 0.005) return true
+    if (v.qt && v.importo != null && Math.abs(v.importo / v.qt - unitario) < 0.005) return true
+    if (v.descrizione && unitario === 13.62 && /PNRR|DM ?77|D\.M\.? ?77/i.test(v.descrizione)) return true
+    return false
+  }
+  const sommaSconosciute = (unitario) =>
+    round2(sconosciute.filter((v) => pareUnitario(v, unitario)).reduce((a, v) => a + (v.importo || 0), 0))
+
   const confronta = (nome, attesoVal, pagatoVal, nota) => {
     const delta = round2((pagatoVal || 0) - (attesoVal || 0))
     righe.push({
@@ -521,18 +565,43 @@ function riconcilia(atteso, cedolino) {
 
   confronta('Onorario (voce 40)', atteso.importi.onorario, somma((v) => v.codice === '40'))
   confronta('Incremento A.I.R. (voce 45)', atteso.importi.air, somma((v) => v.codice === '45'))
-  confronta(
-    'Reperibilità (voce 27)',
-    atteso.importi.reperibilita,
-    somma((v) => v.codice === '27'),
-    atteso.reperibilita ? `${atteso.reperibilita} turni dichiarati` : null,
-  )
-  confronta(
-    'Superfestivo (voce 46)',
-    atteso.importi.superfestivo,
-    somma((v) => v.codice === '46'),
-    atteso.oreSuperfestive ? `${atteso.oreSuperfestive} ore in fascia maggiorata` : null,
-  )
+  {
+    const daCodice = somma((v) => v.codice === '27')
+    const daUnitario = daCodice === 0 && atteso.tariffe.reperibilita ? sommaSconosciute(atteso.tariffe.reperibilita) : 0
+    confronta(
+      'Reperibilità (voce 27)',
+      atteso.importi.reperibilita,
+      round2(daCodice + daUnitario),
+      atteso.reperibilita
+        ? `${atteso.reperibilita} turni dichiarati` + (daUnitario ? ' · riconosciuta da una voce con codice nuovo' : '')
+        : null,
+    )
+  }
+  {
+    const daCodice = somma((v) => v.codice === '46')
+    const daUnitario = daCodice === 0 ? sommaSconosciute(atteso.tariffe.superfestivo || 15) : 0
+    confronta(
+      'Festività maggiorate (voce 46)',
+      atteso.importi.superfestivo,
+      round2(daCodice + daUnitario),
+      atteso.oreSuperfestive
+        ? `${atteso.oreSuperfestive} ore in fascia maggiorata` + (daUnitario ? ' · riconosciute da una voce con codice nuovo' : '')
+        : null,
+    )
+  }
+
+  // Maggiorazione PNRR/DM77 (solo turni da ottobre 2026 in strutture
+  // riconosciute): il codice NoiPA non è ancora noto → si cerca per unitario.
+  if ((atteso.importi.pnrr || 0) > 0 || sommaSconosciute(atteso.tariffe.pnrr || 13.62) > 0) {
+    confronta(
+      'Maggiorazione PNRR/DM77',
+      atteso.importi.pnrr || 0,
+      sommaSconosciute(atteso.tariffe.pnrr || 13.62),
+      atteso.orePnrr
+        ? `${atteso.orePnrr} ore in struttura riconosciuta`
+        : 'voce trovata sul cedolino ma non prevista dai turni dichiarati',
+    )
+  }
 
   // Benzina/chilometrico: il prezzo vero si conosce solo dal cedolino. Se
   // avevamo una stima la confrontiamo, ma la voce non fa mai scattare anomalie
@@ -549,7 +618,11 @@ function riconcilia(atteso, cedolino) {
   })
 
   const anomalie = righe.filter((r) => !r.ok).length
-  return { righe, arretrati, anomalie, prezzoBenzinaRicavato: prezzoRicavato }
+  // le sconosciute che nessun confronto ha «adottato» vanno mostrate: al primo
+  // cedolino del nuovo regime diranno quali codici NoiPA usa davvero
+  const unitariNoti = [atteso.tariffe.pnrr || 13.62, atteso.tariffe.superfestivo || 15, atteso.tariffe.reperibilita || 0]
+  const vociSconosciute = sconosciute.filter((v) => !unitariNoti.some((u) => u && pareUnitario(v, u)))
+  return { righe, arretrati, anomalie, prezzoBenzinaRicavato: prezzoRicavato, vociSconosciute }
 }
 
 return {

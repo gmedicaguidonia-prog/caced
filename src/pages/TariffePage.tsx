@@ -11,6 +11,7 @@ const NOMI_TARIFFE: Record<string, string> = {
   air_ora: 'Incremento orario A.I.R. Lazio',
   reperibilita: 'Turno di reperibilità',
   superfestivo_ora: 'Maggiorazione superfestivo (per ora)',
+  pnrr_ora: 'Maggiorazione PNRR/DM77 (per ora, AIR 2026)',
   enpam_pct: 'ENPAM (% sul lordo)',
   ra_pct: "Ritenuta d'acconto (%)",
 }
@@ -440,6 +441,14 @@ function Postazioni({ postazioni, onCambiato }: { postazioni: Postazione[]; onCa
                 excel: «{p.nome_excel}»
                 {p.suffisso_foglio ? ` · foglio con suffisso «${p.suffisso_foglio}»` : ''}
                 {p.sede_cedolino ? ` · sede sul cedolino: ${p.sede_cedolino}` : ' · sede sul cedolino non ancora collegata'}
+                {' · PNRR/DM77: '}
+                {p.pnrr === 'si' ? (
+                  <b className="text-emerald-700">riconosciuta (+13,62 €/h)</b>
+                ) : p.pnrr === 'no' ? (
+                  <b className="text-cielo-600">non riconosciuta</b>
+                ) : (
+                  <b className="text-amber-700">in attesa della ASL</b>
+                )}
               </span>
             </span>
             <span className="shrink-0 text-xs text-cielo-500">
@@ -515,6 +524,38 @@ function Postazioni({ postazioni, onCambiato }: { postazioni: Postazione[]; onCa
                   className={`${inputCls} w-full`}
                 />
               </label>
+              <div>
+                <span className="mb-1 block text-xs font-medium text-cielo-700">
+                  Maggiorazione PNRR/DM77 (dai turni di ottobre 2026)
+                </span>
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      ['si', 'Riconosciuta'],
+                      ['no', 'No'],
+                      ['boh', 'Non ancora deciso'],
+                    ] as const
+                  ).map(([valore, testo]) => (
+                    <button
+                      key={valore}
+                      type="button"
+                      onClick={() => setModifica({ ...modifica, pnrr: valore })}
+                      className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
+                        (modifica.pnrr ?? 'boh') === valore
+                          ? 'border-cielo-500 bg-cielo-500 text-white'
+                          : 'border-cielo-300 bg-white text-cielo-700 hover:bg-cielo-50'
+                      }`}
+                    >
+                      {testo}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-cielo-500">
+                  Il nuovo AIR paga +13,62 €/h per i turni nelle strutture PNRR/DM77 riconosciute (Case della
+                  Comunità, OdC, UCA…). Finché la ASL non decide, lascia «Non ancora deciso»: la previsione
+                  mostrerà entrambi gli scenari.
+                </p>
+              </div>
               <label className="flex cursor-pointer items-center gap-2 text-sm text-cielo-800">
                 <input
                   type="checkbox"

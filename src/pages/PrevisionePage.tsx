@@ -92,6 +92,46 @@ export default function PrevisionePage() {
             </p>
           )}
 
+          {r.totaleSePnrr && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+              <p className="text-sm font-semibold text-amber-900">
+                ⏳ Maggiorazione PNRR/DM77 ancora da decidere ({formattaOre(r.totale.orePnrrIncerte)} ore in attesa
+                della ASL)
+              </p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-white/70 p-3">
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Se NON riconosciuta</p>
+                  <p className="text-2xl font-bold text-cielo-800">{euro(r.totale.netto)}</p>
+                  <p className="text-xs text-cielo-500">netto · lordo {euro(r.totale.lordo)}</p>
+                </div>
+                <div className="rounded-xl bg-white/70 p-3">
+                  <p className="text-xs uppercase tracking-wide text-cielo-500">Se riconosciuta (+13,62 €/h)</p>
+                  <p className="text-2xl font-bold text-emerald-700">{euro(r.totaleSePnrr.netto)}</p>
+                  <p className="text-xs text-cielo-500">
+                    netto · lordo {euro(r.totaleSePnrr.lordo)} · differenza +{euro(r.totaleSePnrr.netto - r.totale.netto)}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-amber-800">
+                Le cifre grandi qui sopra sono lo scenario prudente (senza maggiorazione). Quando la ASL
+                deciderà, imposta «Riconosciuta» o «No» sulla postazione in Tariffe e Impostazioni e resterà
+                un solo numero.
+              </p>
+            </div>
+          )}
+
+          {r.vecchioEquivalente && (
+            <p className="rounded-xl bg-cielo-50 px-4 py-3 text-sm text-cielo-700">
+              📜 Col vecchio contratto queste stesse ore avrebbero reso <b>{euro(r.vecchioEquivalente.netto)}</b>{' '}
+              netti: il nuovo AIR rende{' '}
+              <b className={r.totale.netto >= r.vecchioEquivalente.netto ? 'text-emerald-700' : 'text-red-700'}>
+                {r.totale.netto >= r.vecchioEquivalente.netto ? '+' : ''}
+                {euro(r.totale.netto - r.vecchioEquivalente.netto)}
+              </b>{' '}
+              {r.totaleSePnrr ? '(nello scenario prudente)' : ''} rispetto a prima.
+            </p>
+          )}
+
           <TabellaCalcolo
             titolo={`Totale (${r.postazioni
               .filter((p) => p.calcolo.ore > 0)
@@ -109,12 +149,16 @@ export default function PrevisionePage() {
           </div>
 
           <p className="text-xs text-cielo-500">
-            Tariffe applicate: onorario {euro(r.totale.tariffe.onorario)}/h (ACN) + {euro(r.totale.tariffe.air)}/h
-            (A.I.R. Lazio) · reperibilità {euro(r.totale.tariffe.reperibilita)}/turno · superfestivo +
+            Tariffe applicate: onorario {euro(r.totale.tariffe.onorario)}/h (ACN)
+            {r.totale.tariffe.air > 0 && <> + {euro(r.totale.tariffe.air)}/h (A.I.R. Lazio)</>}
+            {r.totale.tariffe.pnrr > 0 && <> + {euro(r.totale.tariffe.pnrr)}/h (PNRR/DM77 dove riconosciuta)</>}
+            {' '}· reperibilità {euro(r.totale.tariffe.reperibilita)}/turno · superfestivo +
             {euro(r.totale.tariffe.superfestivo)}/h · chilometrico = prezzo di 1 L di benzina per ora (ACN art. 72
             c.2) · ENPAM {r.totale.tariffe.enpam}% · ritenuta d'acconto {r.totale.tariffe.ra}% · straordinario =
-            ore aggiunte alle voci orarie normali (AIR Lazio: «i normali compensi rapportati alla durata del
-            prolungamento del servizio»).
+            ore aggiunte alle voci orarie normali («i normali compensi rapportati alla durata del prolungamento
+            del servizio»).
+            {r.totale.tariffe.pnrr > 0 &&
+              ' Dai turni di ottobre 2026 vige il nuovo AIR (DGR 610/2026): incremento A.I.R. abrogato, reperibilità 50 € (forfait 1h30), +13,62 €/h nelle strutture PNRR/DM77 riconosciute.'}
           </p>
         </>
       )}
@@ -196,6 +240,11 @@ function TabellaCalcolo({ titolo, c, compatta }: { titolo: string; c: CalcoloMes
       `Maggiorazione superfestivo (${c.oreSuperfestive}h × ${c.tariffe.superfestivo.toLocaleString('it-IT')} €)`,
       'superfestivo',
       c.importi.superfestivo,
+    ],
+    [
+      `Maggiorazione PNRR/DM77 (${formattaOre(c.orePnrr)}h × ${c.tariffe.pnrr.toLocaleString('it-IT')} €)`,
+      'pnrr',
+      c.importi.pnrr,
     ],
     [
       `Reperibilità (${c.reperibilita} × ${c.tariffe.reperibilita.toLocaleString('it-IT')} €)`,

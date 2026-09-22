@@ -120,6 +120,99 @@ controlla('valuta giugno anticipata', motore.dataValuta('2026-06') === '2026-06-
   controlla('senza straordinario: lordo identico', quasi(base.lordo, calcoloMese(mese).lordo))
 }
 
+// ── NUOVO AIR (DGR 610/2026): turni da ottobre 2026 ─────────────────────
+// Caso di verifica ufficiale (air_lazio_2026_note_integrazione.md §7):
+// 180 ore (15 turni x 12h), 1 reperibilita', chilometrico 347,60, niente
+// festivita', zona OFF. Atteso al centesimo:
+//   scenario B (PNRR non riconosciuta): lordo 4.915,60 → netto 3.318,03
+//   scenario A (PNRR riconosciuta):     lordo 7.367,20 → netto 4.972,86
+{
+  const tariffeNuove = tariffe.concat([
+    { tipo: 'air_ora', valore: 0, dal: '2026-10' },
+    { tipo: 'reperibilita', valore: 50.0, dal: '2026-10' },
+    { tipo: 'pnrr_ora', valore: 13.62, dal: '2026-10' },
+  ])
+  const turniOtt = Array.from({ length: 15 }, (_, i) => ({
+    data: `2026-10-${String(i + 1).padStart(2, '0')}`,
+    tipo: 'nott12',
+    superfestivo_ore: 0,
+    straordinario_ore: 0,
+    pnrr: 'boh',
+  }))
+  const rep = [{ data: '2026-10-01', quantita: 1 }]
+  const prezzoL = 347.6 / 180 // il caso fissa il chilometrico totale
+  const B = motore.calcolaMese({ mese: '2026-10', turni: turniOtt, reperibilita: rep, tariffe: tariffeNuove, benzinaPrezzo: prezzoL })
+  const A = motore.calcolaMese({ mese: '2026-10', turni: turniOtt, reperibilita: rep, tariffe: tariffeNuove, benzinaPrezzo: prezzoL, bohCome: 'si' })
+  controlla(`AIR 2026 B: lordo ${B.lordo} = 4915.60`, quasi(B.lordo, 4915.6))
+  controlla(`AIR 2026 B: ENPAM ${B.enpam} = 768.06`, quasi(B.enpam, 768.06))
+  controlla(`AIR 2026 B: ritenuta ${B.ritenuta} = 829.51`, quasi(B.ritenuta, 829.51))
+  controlla(`AIR 2026 B: netto ${B.netto} = 3318.03`, quasi(B.netto, 3318.03))
+  controlla(`AIR 2026 A: lordo ${A.lordo} = 7367.20`, quasi(A.lordo, 7367.2))
+  controlla(`AIR 2026 A: ENPAM ${A.enpam} = 1151.13`, quasi(A.enpam, 1151.13))
+  controlla(`AIR 2026 A: ritenuta ${A.ritenuta} = 1243.21`, quasi(A.ritenuta, 1243.21))
+  controlla(`AIR 2026 A: netto ${A.netto} = 4972.86`, quasi(A.netto, 4972.86))
+  controlla('AIR 2026: incremento AIR azzerato da ottobre', A.importi.air === 0 && B.importi.air === 0)
+  controlla('AIR 2026: reperibilita 50 da ottobre', quasi(A.importi.reperibilita, 50))
+  controlla('AIR 2026 B: niente PNRR sulle ore incerte', B.importi.pnrr === 0 && quasi(B.orePnrrIncerte, 180))
+  controlla('AIR 2026 A: PNRR su tutte le 180 ore', quasi(A.importi.pnrr, 2451.6) && quasi(A.orePnrr, 180))
+
+  // settembre 2026: DEVE restare tutto vecchio regime
+  const set = motore.calcolaMese({
+    mese: '2026-09',
+    turni: [{ data: '2026-09-01', tipo: 'nott12', superfestivo_ore: 0, straordinario_ore: 0, pnrr: 'si' }],
+    reperibilita: [{ data: '2026-09-02', quantita: 1 }],
+    tariffe: tariffeNuove,
+    benzinaPrezzo: null,
+  })
+  controlla('set 2026: AIR ancora 5 euro/h', quasi(set.importi.air, 60))
+  controlla('set 2026: reperibilita ancora 35,09', quasi(set.importi.reperibilita, 35.09))
+  controlla('set 2026: PNRR non ancora in vigore anche se postazione si', set.importi.pnrr === 0)
+
+  // postazione riconosciuta: certa, non "incerta"; straordinario segue la maggiorazione
+  const sicuro = motore.calcolaMese({
+    mese: '2026-10',
+    turni: [{ data: '2026-10-03', tipo: 'nott12', superfestivo_ore: 0, straordinario_ore: 2, pnrr: 'si' }],
+    reperibilita: [],
+    tariffe: tariffeNuove,
+    benzinaPrezzo: null,
+  })
+  controlla('pnrr si: 14 ore maggiorate (12+2 straordinario)', quasi(sicuro.orePnrr, 14) && sicuro.orePnrrIncerte === 0)
+  controlla('pnrr si: importo 14 x 13,62', quasi(sicuro.importi.pnrr, 190.68))
+
+  // riconcilia: cedolino nuovo regime con codici IGNOTI riconosciuti per unitario
+  const attesoNuovo = motore.calcolaMese({
+    mese: '2026-10',
+    turni: turniOtt.map((t) => ({ ...t, pnrr: 'si' })),
+    reperibilita: rep,
+    tariffe: tariffeNuove,
+    benzinaPrezzo: prezzoL,
+  })
+  const cedNuovo = {
+    voci: [
+      { codice: '40', descrizione: 'ONORARIO PROFESSIONALE', qt: 180, uni: 25.1, rif: null, importo: 4518.0 },
+      { codice: '99', descrizione: 'MAGG. ATTIVITA PNRR DM77', qt: 180, uni: 13.62, rif: null, importo: 2451.6 },
+      { codice: '98', descrizione: 'REPERIBILITA NUOVO AIR', qt: 1, uni: 50.0, rif: null, importo: 50.0 },
+      { codice: '11', descrizione: 'COMP. CHILOMETRICO', qt: null, uni: null, rif: null, importo: 347.6 },
+      { codice: '97', descrizione: 'VOCE MISTERIOSA', qt: null, uni: null, rif: null, importo: 12.34 },
+    ],
+  }
+  const ric = motore.riconcilia(attesoNuovo, cedNuovo)
+  const riga = (nome) => ric.righe.find((r) => r.voce === nome)
+  controlla('riconcilia nuovo: PNRR agganciata per unitario', riga('Maggiorazione PNRR/DM77') && riga('Maggiorazione PNRR/DM77').ok)
+  controlla('riconcilia nuovo: reperibilita agganciata per unitario', riga('Reperibilità (voce 27)').ok)
+  controlla('riconcilia nuovo: voce 45 assente e attesa 0 = ok', riga('Incremento A.I.R. (voce 45)').ok)
+  controlla('riconcilia nuovo: onorario quadra', riga('Onorario (voce 40)').ok)
+  controlla(
+    'riconcilia nuovo: la voce misteriosa resta segnalata',
+    Array.isArray(ric.vociSconosciute) && ric.vociSconosciute.length === 1 && ric.vociSconosciute[0].codice === '97',
+  )
+
+  // cedolino VECCHIO regime (rata ottobre = ore di settembre): nulla cambia
+  const attesoVecchio = calcoloMese('2026-06')
+  const ricVecchio = motore.riconcilia(attesoVecchio, seed.cedolini.find((c) => c.rata === '2026-07'))
+  controlla('riconcilia vecchio: nessuna riga PNRR quando non serve', !ricVecchio.righe.some((r) => r.voce === 'Maggiorazione PNRR/DM77'))
+}
+
 // somiglianza nomi sedi
 const sim = (a, b) => Math.round(motore.somiglianzaNomi(a, b) * 100)
 controlla('PALOMBARA NOt ~ Palombara Notte >= 90', sim('PALOMBARA NOt', 'Palombara Notte') >= 90)

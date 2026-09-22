@@ -422,6 +422,21 @@ export default function CedoliniPage() {
                         {det.atteso.totale.oreSuperfestive > 0 && `, ★ ${det.atteso.totale.oreSuperfestive}h superfestive`}
                         ).
                       </p>
+                      {(det.vociSconosciute?.length ?? 0) > 0 && (
+                        <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                          <b>Voci con codice NoiPA mai visto</b> (normale col nuovo AIR — mandale a chi sviluppa
+                          l&apos;app per insegnargliele):
+                          <ul className="mt-1 list-inside list-disc">
+                            {det.vociSconosciute!.map((v, i) => (
+                              <li key={i}>
+                                voce <b>{v.codice}</b> «{v.descrizione ?? '?'}» — {euro(v.importo)}
+                                {v.uni != null && ` (unitario ${euro(v.uni)})`}
+                                {v.qt != null && ` × ${v.qt}`}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                       <p className="mt-1 text-xs text-cielo-500">
                         Letti dal PDF: sede <b>{c.sede ?? '—'}</b> · iscrizione <b>{c.iscrizione ?? '—'}</b>
                         {det.suggerimenti && (
